@@ -1,0 +1,1304 @@
+const STORAGE_KEY = "boso-studio-manager-v1";
+const DB_NAME = "boso-studio-manager-db";
+const DB_STORE = "app-state";
+const DB_VERSION = 1;
+const DEFAULT_CALENDAR_ID = "cf68d0dee8e4775e5f4ccd99b64727c9932f5512b08e8e7f8aa04ade1df853a0@group.calendar.google.com";
+
+const state = {
+  customers: [],
+  visits: [],
+  reservations: [],
+  settings: {
+    sheetWebhookUrl: "",
+    calendarId: DEFAULT_CALENDAR_ID,
+    calendarDuration: 60,
+  },
+  selectedCustomerId: null,
+};
+
+const titles = {
+  dashboard: ["대시보드", "오늘 예약과 최근 방문 고객을 확인하세요."],
+  customers: ["고객관리", "이름, 전화번호, 아이 이름으로 빠르게 찾아보세요."],
+  reservations: ["예약관리", "예약 일정과 촬영 상태를 관리하세요."],
+  prices: ["가격표", "촬영 상품과 가격을 한눈에 확인하세요."],
+  settings: ["연동/백업", "Google Sheets 동기화와 백업을 관리하세요."],
+};
+
+const appsScriptSample = `function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  writeSheet(ss, "Customers", [
+    ["고객번호", "고객명", "전화번호", "아이이름", "아이정보", "메모", "등록일"]
+  ], data.customers.map(c => [
+    c.id, c.name, c.phone, c.childName, c.childInfo, c.memo, c.createdAt
+  ]));
+
+  writeSheet(ss, "Visits", [
+    ["고객번호", "방문회차", "촬영일", "촬영종류", "예약금", "잔금", "결제수단", "결제직원", "메모", "사진수"]
+  ], data.visits.map(v => [
+    v.customerId, v.visitNo, v.date, v.shootType, v.deposit, v.balance,
+    v.paymentMethod, v.paymentStaff, v.memo, (v.photos || []).length
+  ]));
+
+  writeSheet(ss, "Reservations", [
+    ["고객번호", "고객명", "예약일", "시간", "촬영종류", "담당직원", "상태", "메모"]
+  ], data.reservations.map(r => [
+    r.customerId, r.customerName, r.date, r.time, r.shootType, r.staff, r.status, r.memo
+  ]));
+
+  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function writeSheet(ss, name, header, rows) {
+  const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  sheet.clearContents();
+  const values = header.concat(rows);
+  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+}`;
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+async function loadState() {
+  const saved = await readPersistedState();
+  if (saved) {
+    Object.assign(state, saved);
+    migrateState();
+    saveState();
+    return;
+  }
+
+  seedSampleData();
+  migrateState();
+  saveState();
+}
+
+function saveState() {
+  persistState(state).catch(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  });
+}
+
+function migrateState() {
+  const idMap = new Map();
+
+  state.customers.forEach((customer) => {
+    if (String(customer.id || "").startsWith("BOSO-")) {
+      const nextId = customer.id.replace(/^BOSO-/, "");
+      idMap.set(customer.id, nextId);
+      customer.id = nextId;
+    }
+    customer.address = customer.address || "";
+  });
+
+  state.visits.forEach((visit) => {
+    if (idMap.has(visit.customerId)) visit.customerId = idMap.get(visit.customerId);
+    visit.totalAmount = Number(visit.totalAmount || Number(visit.deposit || 0) + Number(visit.balance || 0));
+    visit.deposit = Number(visit.deposit || 0);
+    visit.balance = Number(visit.balance || 0);
+    visit.depositPaymentMethod = Number(visit.deposit || 0) > 0 ? "계좌" : "미결제";
+    delete visit.depositPaymentStaff;
+    visit.balancePaymentMethod = visit.balancePaymentMethod || "미결제";
+    visit.balancePaymentStaff = visit.balancePaymentStaff || "";
+    visit.deliveryStatus = visit.deliveryStatus || "없음";
+  });
+
+  state.reservations.forEach((reservation) => {
+    if (idMap.has(reservation.customerId)) reservation.customerId = idMap.get(reservation.customerId);
+  });
+}
+
+function seedSampleData() {
+  const today = toDateInput(new Date());
+  state.customers = [
+    {
+      id: "2026-0001",
+      name: "김하늘",
+      phone: "010-1234-5678",
+      childName: "서아",
+      childInfo: "2025.02.10",
+      address: "서울시 강남구 샘플로 10",
+      memo: "돌사진 문의 많음",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  state.visits = [
+    {
+      id: newId(),
+      customerId: "2026-0001",
+      visitNo: 1,
+      date: today,
+      shootType: "아기사진",
+      productName: "돌상 패키지",
+      totalAmount: 200000,
+      deposit: 50000,
+      balance: 150000,
+      depositPaymentMethod: "계좌",
+      balancePaymentMethod: "미결제",
+      balancePaymentStaff: "",
+      deliveryStatus: "예정",
+      memo: "첫 방문. 밝은 배경 선호.",
+      photos: [],
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  state.reservations = [
+    {
+      id: newId(),
+      customerId: "2026-0001",
+      date: today,
+      time: "14:00",
+      shootType: "가족사진",
+      productName: "가족사진 20R",
+      staff: "대표",
+      status: "예약",
+      memo: "부모님 동반",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
+async function init() {
+  await loadState();
+  loadAppsScriptSample();
+  $("#sheetWebhookUrl").value = state.settings.sheetWebhookUrl || "";
+  $("#calendarId").value = state.settings.calendarId || DEFAULT_CALENDAR_ID;
+  $("#calendarDuration").value = state.settings.calendarDuration || 60;
+  $("#reservationDateFilter").value = "";
+
+  bindEvents();
+  renderAll();
+}
+
+function bindEvents() {
+  $$(".nav-button").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.view));
+  });
+
+  $$("[data-view-target]").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.viewTarget));
+  });
+
+  $("#openCustomerModal").addEventListener("click", () => {
+    openCustomerCreator();
+  });
+
+  $("#openReservationModal").addEventListener("click", () => {
+    openReservationCreator();
+  });
+
+  $$("[data-close-modal]").forEach((button) => {
+    button.addEventListener("click", () => $(`#${button.dataset.closeModal}`).close());
+  });
+
+  $("#customerSearch").addEventListener("input", renderCustomers);
+  $("#shootTypeFilter").addEventListener("change", renderCustomers);
+  $("#reservationSearch").addEventListener("input", renderReservations);
+  $("#reservationDateFilter").addEventListener("change", renderReservations);
+
+  $("#customerForm").addEventListener("submit", handleCustomerSubmit);
+  $("#visitForm").addEventListener("submit", handleVisitSubmit);
+  $("#reservationForm").addEventListener("submit", handleReservationSubmit);
+
+  $("#saveWebhook").addEventListener("click", saveWebhook);
+  $("#saveCalendarSettings").addEventListener("click", saveCalendarSettings);
+  $("#pushSheets").addEventListener("click", pushSheets);
+  $("#pullSheets").addEventListener("click", pullSheets);
+  $("#pushCalendar").addEventListener("click", pushCalendar);
+  $("#exportJson").addEventListener("click", exportJson);
+  $("#exportCsv").addEventListener("click", exportCsv);
+  $("#importJson").addEventListener("change", importJson);
+}
+
+function switchView(view) {
+  $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  $$(".view").forEach((section) => section.classList.remove("active"));
+  $(`#${view}View`).classList.add("active");
+  $("#pageTitle").textContent = titles[view][0];
+  $("#pageSubTitle").textContent = titles[view][1];
+}
+
+function renderAll() {
+  renderDashboard();
+  renderCustomers();
+  renderReservations();
+  fillCustomerSelect();
+}
+
+function renderDashboard() {
+  const revenue = getRevenueSummary();
+  $("#totalCustomers").textContent = state.customers.length;
+  $("#totalVisits").textContent = state.visits.length;
+  $("#upcomingReservations").textContent = state.reservations.filter((r) => r.status === "예약" && r.date >= toDateInput(new Date())).length;
+  $("#unpaidBalance").textContent = formatWon(state.visits.reduce((sum, visit) => sum + getRemainingAmount(visit), 0));
+  $("#currentMonthRevenue").textContent = `이번 달 ${formatWon(revenue.currentMonthTotal)}`;
+  $("#currentMonthVisitCount").textContent = `${revenue.currentMonthVisitCount}건`;
+  $("#monthlyRevenueChart").innerHTML = renderMonthlyRevenueChart(revenue.monthly);
+  $("#shootTypeRevenueList").innerHTML = renderShootTypeRevenue(revenue.byShootType);
+
+  const today = toDateInput(new Date());
+  const todays = state.reservations
+    .filter((r) => r.date === today)
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  $("#todayReservationList").innerHTML = todays.length
+    ? todays.map(renderReservationItem).join("")
+    : `<div class="empty-state">오늘 예약이 없습니다.</div>`;
+
+  const recent = [...state.visits].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+  $("#recentVisitList").innerHTML = recent.length
+    ? recent.map(renderVisitSummary).join("")
+    : `<div class="empty-state">방문 기록이 없습니다.</div>`;
+}
+
+function getRevenueSummary() {
+  const nowMonth = toMonthKey(new Date());
+  const monthlyMap = new Map();
+  const shootTypeMap = new Map();
+  let currentMonthVisitCount = 0;
+
+  state.visits.forEach((visit) => {
+    const month = (visit.date || "").slice(0, 7);
+    if (!month) return;
+
+    const revenue = getVisitRevenue(visit);
+    monthlyMap.set(month, (monthlyMap.get(month) || 0) + revenue);
+
+    if (month === nowMonth) {
+      currentMonthVisitCount += 1;
+      shootTypeMap.set(visit.shootType, (shootTypeMap.get(visit.shootType) || 0) + revenue);
+    }
+  });
+
+  const months = lastMonths(12);
+  const monthly = months.map((month) => ({
+    month,
+    total: monthlyMap.get(month) || 0,
+  }));
+
+  return {
+    monthly,
+    currentMonthTotal: monthlyMap.get(nowMonth) || 0,
+    currentMonthVisitCount,
+    byShootType: Array.from(shootTypeMap, ([type, total]) => ({ type, total }))
+      .sort((a, b) => b.total - a.total),
+  };
+}
+
+function renderMonthlyRevenueChart(monthly) {
+  const max = Math.max(...monthly.map((item) => item.total), 1);
+  return monthly.map((item) => {
+    const height = Math.max(4, Math.round((item.total / max) * 128));
+    return `
+      <div class="revenue-bar-item">
+        <div class="revenue-value">${item.total ? formatCompactWon(item.total) : "0"}</div>
+        <div class="revenue-bar-track">
+          <div class="revenue-bar" style="height:${height}px"></div>
+        </div>
+        <div class="revenue-month">${item.month.slice(5)}월</div>
+      </div>`;
+  }).join("");
+}
+
+function renderShootTypeRevenue(items) {
+  if (!items.length) return `<div class="empty-state compact">이번 달 방문 매출이 없습니다.</div>`;
+
+  return items.map((item) => `
+    <article class="list-item">
+      <div class="item-top">
+        <div>
+          <div class="item-title">${escapeHtml(item.type)}</div>
+          <div class="item-meta">이번 달 촬영 매출</div>
+        </div>
+        <strong>${formatWon(item.total)}</strong>
+      </div>
+    </article>`).join("");
+}
+
+function renderCustomers() {
+  const query = normalize($("#customerSearch").value);
+  const shootType = $("#shootTypeFilter").value;
+
+  const customers = state.customers.filter((customer) => {
+    const visitText = getVisits(customer.id).map((visit) => [visit.date, visit.shootType, visit.productName, visit.memo].join(" ")).join(" ");
+    const haystack = normalize([customer.id, customer.name, customer.phone, customer.childName, customer.childInfo, customer.address, customer.memo, visitText].join(" "));
+    const matchesQuery = !query || haystack.includes(query);
+    const matchesShoot = !shootType || state.visits.some((visit) => visit.customerId === customer.id && visit.shootType === shootType);
+    return matchesQuery && matchesShoot;
+  });
+
+  $("#customerList").innerHTML = customers.length
+    ? customers.map(renderCustomerListItem).join("")
+    : `<div class="empty-state">검색 결과가 없습니다.</div>`;
+
+  $$(".customer-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      state.selectedCustomerId = card.dataset.customerId;
+      renderCustomerDetail();
+      renderCustomers();
+    });
+  });
+
+  renderCustomerDetail();
+}
+
+function renderCustomerListItem(customer) {
+  const visits = getVisits(customer.id).sort((a, b) => a.date.localeCompare(b.date));
+  const firstVisit = visits[0];
+  const visitTimeline = visits.length
+    ? visits.map((visit) => `
+      <div class="shoot-history-row">
+        <span class="shoot-history-no">${visit.visitNo}회</span>
+        <span>${formatDate(visit.date)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""}</span>
+      </div>`).join("")
+    : `<div class="shoot-history-row muted">촬영 기록 없음</div>`;
+  const selected = state.selectedCustomerId === customer.id ? " selected" : "";
+  return `
+    <article class="list-item clickable customer-card${selected}" data-customer-id="${customer.id}">
+      <div class="item-top">
+        <div>
+          <div class="item-title">${escapeHtml(customer.name)} <span class="badge">${customer.id}</span></div>
+          <div class="item-meta">${escapeHtml(customer.phone)} · 아이: ${escapeHtml(customer.childName || "-")}</div>
+          ${customer.address ? `<div class="item-meta">주소: ${escapeHtml(customer.address)}</div>` : ""}
+          <div class="item-meta fixed-first-shoot">첫 촬영: ${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}${firstVisit.productName ? ` · ${escapeHtml(firstVisit.productName)}` : ""}` : "기록 없음"}</div>
+        </div>
+        <span class="badge ${visits.length > 1 ? "done" : ""}">${visits.length}회</span>
+      </div>
+      <div class="shoot-history">${visitTimeline}</div>
+    </article>`;
+}
+
+function renderCustomerDetail() {
+  const customer = state.customers.find((item) => item.id === state.selectedCustomerId);
+  if (!customer) {
+    $("#customerDetail").innerHTML = `<div class="empty-state">고객을 선택하면 방문 기록과 결제 내역이 보입니다.</div>`;
+    return;
+  }
+
+  const visits = getVisits(customer.id).sort((a, b) => b.date.localeCompare(a.date));
+  const firstVisit = [...visits].sort((a, b) => a.date.localeCompare(b.date))[0];
+  const reservations = state.reservations
+    .filter((item) => item.customerId === customer.id)
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+
+  $("#customerDetail").innerHTML = `
+    <div class="detail-header">
+      <div class="detail-title">
+        <h2>${escapeHtml(customer.name)} <span class="badge">${customer.id}</span></h2>
+        <p class="muted">${escapeHtml(customer.phone)} · 아이: ${escapeHtml(customer.childName || "-")}</p>
+        ${customer.address ? `<p class="muted">주소: ${escapeHtml(customer.address)}</p>` : ""}
+      </div>
+      <div class="button-row detail-actions">
+        <button class="secondary-button" id="editCustomer">고객 수정</button>
+        <button class="danger-button" id="deleteCustomer">고객 삭제</button>
+        <button class="primary-button" id="addVisit">+ 방문 기록</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="info-box"><span>총 방문</span><strong>${visits.length}회</strong></div>
+      <div class="info-box"><span>첫 촬영</span><strong>${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}` : "-"}</strong></div>
+      <div class="info-box"><span>최근 촬영</span><strong>${visits[0] ? `${formatDate(visits[0].date)} · ${escapeHtml(visits[0].shootType)}` : "-"}</strong></div>
+      <div class="info-box"><span>아이 정보</span><strong>${escapeHtml(customer.childInfo || "-")}</strong></div>
+    </div>
+    ${customer.memo ? `<div class="list-item"><strong>고객 메모</strong><div class="item-meta">${escapeHtml(customer.memo)}</div></div>` : ""}
+    <div class="panel-head"><h2>방문/촬영 기록</h2></div>
+    <div class="list">${visits.length ? visits.map(renderVisitDetail).join("") : `<div class="empty-state">방문 기록이 없습니다.</div>`}</div>
+    <div class="panel-head" style="margin-top:18px"><h2>예약 이력</h2></div>
+    <div class="list">${reservations.length ? reservations.map(renderReservationItem).join("") : `<div class="empty-state">예약 이력이 없습니다.</div>`}</div>
+  `;
+
+  $("#addVisit").addEventListener("click", () => {
+    openVisitCreator(customer.id);
+  });
+
+  $("#editCustomer").addEventListener("click", () => openCustomerEditor(customer.id));
+  $("#deleteCustomer").addEventListener("click", () => deleteCustomer(customer.id));
+
+  $$(".edit-visit").forEach((button) => {
+    button.addEventListener("click", () => openVisitEditor(button.dataset.visitId));
+  });
+
+  $$(".delete-visit").forEach((button) => {
+    button.addEventListener("click", () => deleteVisit(button.dataset.visitId));
+  });
+
+  bindReservationActions();
+}
+
+function openCustomerCreator() {
+  const form = $("#customerForm");
+  form.reset();
+  form.customerId.value = "";
+  $("#customerModalTitle").textContent = "고객 등록";
+  setFirstVisitFieldsVisible(true);
+  $("#customerModal").showModal();
+}
+
+function openCustomerEditor(customerId) {
+  const customer = state.customers.find((item) => item.id === customerId);
+  if (!customer) return;
+
+  const form = $("#customerForm");
+  form.reset();
+  form.customerId.value = customer.id;
+  form.name.value = customer.name || "";
+  form.phone.value = customer.phone || "";
+  form.childName.value = customer.childName || "";
+  form.childInfo.value = customer.childInfo || "";
+  form.address.value = customer.address || "";
+  form.memo.value = customer.memo || "";
+  $("#customerModalTitle").textContent = "고객 수정";
+  setFirstVisitFieldsVisible(false);
+  $("#customerModal").showModal();
+}
+
+function setFirstVisitFieldsVisible(isVisible) {
+  ["firstVisitDate", "firstShootType", "firstProductName"].forEach((name) => {
+    const field = $(`#customerForm [name="${name}"]`);
+    if (!field) return;
+    field.closest("label").style.display = isVisible ? "" : "none";
+    field.disabled = !isVisible;
+  });
+}
+
+function renderVisitDetail(visit) {
+  const photoMarkup = visit.photos?.length
+    ? `<div class="photo-grid">${visit.photos.map((photo) => `<img src="${photo.dataUrl}" alt="${escapeHtml(photo.name)}" />`).join("")}</div>`
+    : "";
+  const paidAmount = getPaidAmount(visit);
+  const remainingAmount = getRemainingAmount(visit);
+  const settlementStatus = getSettlementStatus(visit);
+  return `
+    <article class="list-item visit-card">
+      <div class="item-top">
+        <div>
+          <div class="item-title">${visit.visitNo}번째 방문 · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""}</div>
+          <div class="item-meta">${formatDate(visit.date)} · 총금액 ${formatWon(visit.totalAmount)} · 총 받은 금액 ${formatWon(paidAmount)} · 남은 금액 ${formatWon(remainingAmount)}</div>
+        </div>
+        <span class="badge ${settlementStatus === "정산완료" ? "done" : "warning"}">${settlementStatus}</span>
+      </div>
+      <div class="payment-breakdown">
+        <div><strong>총금액</strong> ${formatWon(visit.totalAmount)} · <strong>총 받은 금액</strong> ${formatWon(paidAmount)}</div>
+        <div><strong>계약금 받은 금액</strong> ${formatWon(visit.deposit)} · ${escapeHtml(visit.depositPaymentMethod || "계좌")}</div>
+        <div><strong>잔금 받은 금액</strong> ${formatWon(visit.balance)} · ${escapeHtml(visit.balancePaymentMethod || "-")} · ${escapeHtml(visit.balancePaymentStaff || "-")}</div>
+        <div><strong>택배여부</strong> ${escapeHtml(visit.deliveryStatus || "없음")}</div>
+      </div>
+      ${visit.memo ? `<div class="item-meta">${escapeHtml(visit.memo)}</div>` : ""}
+      ${photoMarkup}
+      <div class="button-row visit-actions">
+        <button class="secondary-button edit-visit" data-visit-id="${escapeHtml(visit.id)}">방문/촬영 수정</button>
+        <button class="danger-button delete-visit" data-visit-id="${escapeHtml(visit.id)}">삭제</button>
+      </div>
+    </article>`;
+}
+
+function openVisitCreator(customerId) {
+  const form = $("#visitForm");
+  form.reset();
+  form.visitId.value = "";
+  form.customerId.value = customerId;
+  form.date.value = toDateInput(new Date());
+  form.totalAmount.value = 0;
+  form.deposit.value = 0;
+  form.balance.value = 0;
+  $("#visitModalTitle").textContent = "방문/촬영 기록 추가";
+  $("#visitModal").showModal();
+}
+
+function openVisitEditor(visitId) {
+  const visit = state.visits.find((item) => item.id === visitId);
+  if (!visit) return;
+
+  const form = $("#visitForm");
+  form.reset();
+  form.visitId.value = visit.id;
+  form.customerId.value = visit.customerId;
+  form.date.value = visit.date || "";
+  form.shootType.value = visit.shootType || "아기사진";
+  form.productName.value = visit.productName || "";
+  form.totalAmount.value = visit.totalAmount || 0;
+  form.deposit.value = visit.deposit || 0;
+  form.balance.value = visit.balance || 0;
+  form.balancePaymentMethod.value = visit.balancePaymentMethod || "미결제";
+  form.balancePaymentStaff.value = visit.balancePaymentStaff || "";
+  form.deliveryStatus.value = visit.deliveryStatus || "없음";
+  form.memo.value = visit.memo || "";
+  $("#visitModalTitle").textContent = "방문/촬영 기록 수정";
+  $("#visitModal").showModal();
+}
+
+function deleteVisit(visitId) {
+  const visit = state.visits.find((item) => item.id === visitId);
+  if (!visit) return;
+
+  const customer = getCustomer(visit.customerId);
+  const message = `${customer?.name || "고객"}님의 ${visit.visitNo}번째 방문/촬영 기록을 삭제할까요?`;
+  if (!confirm(message)) return;
+
+  state.visits = state.visits.filter((item) => item.id !== visitId);
+  renumberVisits(visit.customerId);
+  saveState();
+  renderAll();
+  showToast("방문/촬영 기록이 삭제되었습니다.");
+}
+
+function renumberVisits(customerId) {
+  getVisits(customerId)
+    .sort((a, b) => `${a.date || ""} ${a.createdAt || ""}`.localeCompare(`${b.date || ""} ${b.createdAt || ""}`))
+    .forEach((visit, index) => {
+      visit.visitNo = index + 1;
+    });
+}
+
+function renderVisitSummary(visit) {
+  const customer = getCustomer(visit.customerId);
+  return `
+    <article class="list-item">
+      <div class="item-top">
+        <div>
+          <div class="item-title">${escapeHtml(customer?.name || "삭제된 고객")} · ${visit.visitNo}번째 방문</div>
+          <div class="item-meta">${formatDate(visit.date)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""} · 사진 ${visit.photos?.length || 0}장</div>
+        </div>
+        <span class="badge">${escapeHtml(visit.customerId)}</span>
+      </div>
+    </article>`;
+}
+
+function renderReservations() {
+  const query = normalize($("#reservationSearch").value);
+  const date = $("#reservationDateFilter").value;
+  const reservations = state.reservations
+    .filter((reservation) => {
+      const customer = getCustomer(reservation.customerId);
+      const haystack = normalize([customer?.name, customer?.phone, reservation.shootType, reservation.productName, reservation.staff, reservation.memo].join(" "));
+      return (!query || haystack.includes(query)) && (!date || reservation.date === date);
+    })
+    .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+
+  $("#reservationList").innerHTML = reservations.length
+    ? reservations.map(renderReservationItem).join("")
+    : `<div class="empty-state">예약이 없습니다.</div>`;
+
+  bindReservationActions();
+}
+
+function renderReservationItem(reservation) {
+  const customer = getCustomer(reservation.customerId);
+  const statusClass = reservation.status === "예약" ? "" : reservation.status === "촬영완료" ? "done" : "warning";
+  return `
+    <article class="list-item">
+      <div class="item-top">
+        <div>
+          <div class="item-title">${formatDate(reservation.date)} ${reservation.time} · ${escapeHtml(customer?.name || "삭제된 고객")}</div>
+          <div class="item-meta">${escapeHtml(customer?.phone || "-")} · ${escapeHtml(reservation.shootType)}${reservation.productName ? ` · ${escapeHtml(reservation.productName)}` : ""} · 담당 ${escapeHtml(reservation.staff || "-")}</div>
+          ${reservation.memo ? `<div class="item-meta">${escapeHtml(reservation.memo)}</div>` : ""}
+        </div>
+        <span class="badge ${statusClass}">${escapeHtml(reservation.status)}</span>
+      </div>
+      <div class="button-row reservation-actions">
+        <button class="secondary-button edit-reservation" data-reservation-id="${escapeHtml(reservation.id)}">예약 수정</button>
+        <button class="danger-button delete-reservation" data-reservation-id="${escapeHtml(reservation.id)}">삭제</button>
+      </div>
+    </article>`;
+}
+
+function bindReservationActions() {
+  $$(".edit-reservation").forEach((button) => {
+    button.addEventListener("click", () => openReservationEditor(button.dataset.reservationId));
+  });
+
+  $$(".delete-reservation").forEach((button) => {
+    button.addEventListener("click", () => deleteReservation(button.dataset.reservationId));
+  });
+}
+
+function handleCustomerSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const customerId = form.get("customerId");
+  const existingCustomer = state.customers.find((item) => item.id === customerId);
+  const customer = {
+    id: existingCustomer?.id || nextCustomerId(),
+    name: form.get("name").trim(),
+    phone: form.get("phone").trim(),
+    childName: form.get("childName").trim(),
+    childInfo: form.get("childInfo").trim(),
+    address: form.get("address").trim(),
+    memo: form.get("memo").trim(),
+    createdAt: existingCustomer?.createdAt || new Date().toISOString(),
+  };
+
+  if (existingCustomer) {
+    Object.assign(existingCustomer, customer);
+  } else {
+    state.customers.unshift(customer);
+  }
+
+  if (!existingCustomer && form.get("firstVisitDate") && form.get("firstShootType")) {
+    state.visits.unshift({
+      id: newId(),
+      customerId: customer.id,
+      visitNo: 1,
+      date: form.get("firstVisitDate"),
+      shootType: form.get("firstShootType"),
+      productName: form.get("firstProductName").trim(),
+      totalAmount: 0,
+      deposit: 0,
+      balance: 0,
+      depositPaymentMethod: "미결제",
+      balancePaymentMethod: "미결제",
+      balancePaymentStaff: "",
+      deliveryStatus: "없음",
+      memo: "고객 등록 시 입력한 첫 촬영 기록",
+      photos: [],
+      createdAt: new Date().toISOString(),
+    });
+  }
+  state.selectedCustomerId = customer.id;
+  saveState();
+  $("#customerModal").close();
+  renderAll();
+  switchView("customers");
+  showToast(existingCustomer ? "고객 정보가 수정되었습니다." : "고객이 등록되었습니다.");
+}
+
+function deleteCustomer(customerId) {
+  const customer = state.customers.find((item) => item.id === customerId);
+  if (!customer) return;
+
+  const visitCount = getVisits(customerId).length;
+  const reservationCount = state.reservations.filter((item) => item.customerId === customerId).length;
+  const message = `${customer.name} 고객을 삭제할까요?\n방문 기록 ${visitCount}건과 예약 ${reservationCount}건도 함께 삭제됩니다.`;
+  if (!confirm(message)) return;
+
+  state.customers = state.customers.filter((item) => item.id !== customerId);
+  state.visits = state.visits.filter((item) => item.customerId !== customerId);
+  state.reservations = state.reservations.filter((item) => item.customerId !== customerId);
+  if (state.selectedCustomerId === customerId) state.selectedCustomerId = null;
+  saveState();
+  renderAll();
+  showToast("고객이 삭제되었습니다.");
+}
+
+async function handleVisitSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const customerId = form.get("customerId");
+  const visitId = form.get("visitId");
+  const photos = await filesToDataUrls(event.currentTarget.photos.files);
+  const existingVisit = state.visits.find((item) => item.id === visitId);
+  const visit = {
+    id: visitId || newId(),
+    customerId,
+    visitNo: existingVisit?.visitNo || getVisits(customerId).length + 1,
+    date: form.get("date"),
+    shootType: form.get("shootType"),
+    productName: form.get("productName").trim(),
+    totalAmount: Number(form.get("totalAmount") || 0),
+    deposit: Number(form.get("deposit") || 0),
+    balance: Number(form.get("balance") || 0),
+    depositPaymentMethod: Number(form.get("deposit") || 0) > 0 ? "계좌" : "미결제",
+    balancePaymentMethod: form.get("balancePaymentMethod"),
+    balancePaymentStaff: form.get("balancePaymentStaff").trim(),
+    deliveryStatus: form.get("deliveryStatus"),
+    memo: form.get("memo").trim(),
+    photos: photos.length ? [...(existingVisit?.photos || []), ...photos] : existingVisit?.photos || [],
+    createdAt: existingVisit?.createdAt || new Date().toISOString(),
+  };
+
+  if (existingVisit) {
+    Object.assign(existingVisit, visit);
+  } else {
+    state.visits.unshift(visit);
+  }
+  saveState();
+  $("#visitModal").close();
+  renderAll();
+  showToast(existingVisit ? "촬영 기록이 수정되었습니다." : "방문 기록이 저장되었습니다.");
+}
+
+async function handleReservationSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const reservationId = form.get("reservationId");
+  const existingReservation = state.reservations.find((item) => item.id === reservationId);
+  const reservation = {
+    id: existingReservation?.id || newId(),
+    customerId: form.get("customerId"),
+    date: form.get("date"),
+    time: form.get("time"),
+    shootType: form.get("shootType"),
+    productName: form.get("productName").trim(),
+    staff: form.get("staff").trim(),
+    status: form.get("status"),
+    memo: form.get("memo").trim(),
+    createdAt: existingReservation?.createdAt || new Date().toISOString(),
+  };
+
+  if (existingReservation) {
+    Object.assign(existingReservation, reservation);
+  } else {
+    state.reservations.push(reservation);
+  }
+  saveState();
+  $("#reservationModal").close();
+  renderAll();
+  switchView("reservations");
+  if (existingReservation) {
+    showToast("예약이 수정되었습니다.");
+    return;
+  }
+
+  const calendarSynced = await syncCalendarAfterReservation(reservation);
+  showToast(calendarSynced ? "예약이 등록되고 Google Calendar에 전송되었습니다." : "예약은 등록됐지만 Google Calendar 전송은 실패했습니다.");
+}
+
+function openReservationCreator() {
+  const form = $("#reservationForm");
+  form.reset();
+  fillCustomerSelect();
+  form.reservationId.value = "";
+  form.date.value = toDateInput(new Date());
+  $("#reservationModalTitle").textContent = "예약 등록";
+  $("#reservationModal").showModal();
+}
+
+function openReservationEditor(reservationId) {
+  const reservation = state.reservations.find((item) => item.id === reservationId);
+  if (!reservation) return;
+
+  const form = $("#reservationForm");
+  form.reset();
+  fillCustomerSelect();
+  form.reservationId.value = reservation.id;
+  form.customerId.value = reservation.customerId || "";
+  form.date.value = reservation.date || "";
+  form.time.value = reservation.time || "";
+  form.shootType.value = reservation.shootType || "아기사진";
+  form.productName.value = reservation.productName || "";
+  form.staff.value = reservation.staff || "";
+  form.status.value = reservation.status || "예약";
+  form.memo.value = reservation.memo || "";
+  $("#reservationModalTitle").textContent = "예약 수정";
+  $("#reservationModal").showModal();
+}
+
+function deleteReservation(reservationId) {
+  const reservation = state.reservations.find((item) => item.id === reservationId);
+  if (!reservation) return;
+
+  const customer = getCustomer(reservation.customerId);
+  const message = `${formatDate(reservation.date)} ${reservation.time} · ${customer?.name || "삭제된 고객"} 예약을 삭제할까요?`;
+  if (!confirm(message)) return;
+
+  state.reservations = state.reservations.filter((item) => item.id !== reservationId);
+  saveState();
+  renderAll();
+  showToast("예약이 삭제되었습니다.");
+}
+
+function fillCustomerSelect() {
+  const select = $("#reservationCustomerSelect");
+  select.innerHTML = state.customers
+    .map((customer) => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)} · ${customer.id}</option>`)
+    .join("");
+}
+
+function saveWebhook() {
+  state.settings.sheetWebhookUrl = $("#sheetWebhookUrl").value.trim();
+  saveCalendarSettings(false);
+  saveState();
+  showToast("연동 URL이 저장되었습니다.");
+}
+
+function saveCalendarSettings(showMessage = true) {
+  state.settings.calendarId = normalizeCalendarId($("#calendarId").value.trim()) || DEFAULT_CALENDAR_ID;
+  $("#calendarId").value = state.settings.calendarId;
+  state.settings.calendarDuration = Number($("#calendarDuration").value || 60);
+  saveState();
+  if (showMessage) showToast("캘린더 설정이 저장되었습니다.");
+}
+
+async function pushSheets() {
+  const url = state.settings.sheetWebhookUrl || $("#sheetWebhookUrl").value.trim();
+  if (!url) {
+    showToast("Apps Script 웹앱 URL을 먼저 입력하세요.");
+    return;
+  }
+
+  const payload = {
+    customers: state.customers,
+    visits: state.visits,
+    reservations: state.reservations.map((reservation) => ({
+      ...reservation,
+      customerName: getCustomer(reservation.customerId)?.name || "",
+    })),
+    syncedAt: new Date().toISOString(),
+  };
+
+  try {
+    await fetch(url, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    showToast("Google Sheets로 전송했습니다.");
+  } catch {
+    showToast("전송에 실패했습니다. URL과 배포 권한을 확인하세요.");
+  }
+}
+
+async function pullSheets() {
+  const url = state.settings.sheetWebhookUrl || $("#sheetWebhookUrl").value.trim();
+  if (!url) {
+    showToast("Apps Script 웹앱 URL을 먼저 입력하세요.");
+    return;
+  }
+
+  try {
+    const data = await fetchSheetJsonp(url);
+    state.customers = data.customers || [];
+    state.visits = (data.visits || []).map((visit) => ({
+      photos: [],
+      createdAt: new Date().toISOString(),
+      ...visit,
+      id: visit.id || newId(),
+      totalAmount: Number(visit.totalAmount || Number(visit.deposit || 0) + Number(visit.balance || 0)),
+      deposit: Number(visit.deposit || 0),
+      balance: Number(visit.balance || 0),
+      depositPaymentMethod: Number(visit.deposit || 0) > 0 ? "계좌" : "미결제",
+      balancePaymentMethod: visit.balancePaymentMethod || "미결제",
+      balancePaymentStaff: visit.balancePaymentStaff || "",
+      deliveryStatus: visit.deliveryStatus || "없음",
+    }));
+    state.reservations = (data.reservations || []).map((reservation) => ({
+      createdAt: new Date().toISOString(),
+      ...reservation,
+      id: reservation.id || newId(),
+    }));
+    state.settings.sheetWebhookUrl = url;
+    state.selectedCustomerId = null;
+    saveState();
+    renderAll();
+    showToast("Google Sheets 데이터를 가져왔습니다.");
+  } catch {
+    showToast("가져오기에 실패했습니다. Apps Script 배포 상태를 확인하세요.");
+  }
+}
+
+async function pushCalendar(options = {}) {
+  const silent = Boolean(options.silent);
+  const url = state.settings.sheetWebhookUrl || $("#sheetWebhookUrl").value.trim();
+  if (!url) {
+    if (!silent) showToast("Apps Script 웹앱 URL을 먼저 입력하세요.");
+    return;
+  }
+
+  saveCalendarSettings(false);
+
+  const payload = {
+    action: "syncCalendar",
+    calendarId: normalizeCalendarId(state.settings.calendarId) || DEFAULT_CALENDAR_ID,
+    eventDurationMinutes: state.settings.calendarDuration || 60,
+    reservations: state.reservations.map((reservation) => {
+      const customer = getCustomer(reservation.customerId);
+      return {
+        ...reservation,
+        customerName: customer?.name || "",
+        customerPhone: customer?.phone || "",
+        childName: customer?.childName || "",
+      };
+    }),
+    syncedAt: new Date().toISOString(),
+  };
+
+  try {
+    await fetch(url, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    if (!silent) showToast("Google Calendar로 예약을 전송했습니다.");
+    return true;
+  } catch {
+    if (!silent) showToast("캘린더 전송에 실패했습니다. Apps Script 권한을 확인하세요.");
+    return false;
+  }
+}
+
+async function syncCalendarAfterReservation(reservation) {
+  const url = state.settings.sheetWebhookUrl || $("#sheetWebhookUrl").value.trim();
+  if (!url) return false;
+  const customer = getCustomer(reservation.customerId);
+  const payload = {
+    ...reservation,
+    customerName: customer?.name || "",
+    customerPhone: customer?.phone || "",
+    childName: customer?.childName || "",
+  };
+
+  try {
+    const result = await fetchCalendarReservationJsonp(url, payload);
+    return Boolean(result?.ok);
+  } catch {
+    return false;
+  }
+}
+
+function fetchCalendarReservationJsonp(url, reservation) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `bosoCalendarCallback${Date.now()}`;
+    const script = document.createElement("script");
+    const separator = url.includes("?") ? "&" : "?";
+    const payload = encodeBase64Url(JSON.stringify(reservation));
+    const calendarId = encodeURIComponent(normalizeCalendarId(state.settings.calendarId) || DEFAULT_CALENDAR_ID);
+    const duration = encodeURIComponent(state.settings.calendarDuration || 60);
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google Calendar request timed out"));
+    }, 15000);
+
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    function cleanup() {
+      window.clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Google Calendar request failed"));
+    };
+    script.src = `${url}${separator}action=syncCalendarReservation&calendarId=${calendarId}&eventDurationMinutes=${duration}&payload=${payload}&callback=${callbackName}&ts=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
+
+function fetchSheetJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `bosoSheetCallback${Date.now()}`;
+    const script = document.createElement("script");
+    const separator = url.includes("?") ? "&" : "?";
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google Sheets request timed out"));
+    }, 15000);
+
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    function cleanup() {
+      window.clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Google Sheets request failed"));
+    };
+    script.src = `${url}${separator}callback=${callbackName}&ts=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
+
+function loadAppsScriptSample() {
+  fetch("google-apps-script.gs")
+    .then((response) => response.text())
+    .then((text) => {
+      $("#appsScriptCode").textContent = text;
+    })
+    .catch(() => {
+      $("#appsScriptCode").textContent = appsScriptSample;
+    });
+}
+
+function exportJson() {
+  downloadFile(`boso-backup-${toDateInput(new Date())}.json`, JSON.stringify(state, null, 2), "application/json");
+}
+
+function exportCsv() {
+  const rows = [["고객번호", "고객명", "전화번호", "아이이름", "주소", "방문회차", "촬영일", "촬영종류", "촬영상품", "총금액", "계약금받은금액", "계약금결제방법", "잔금받은금액", "잔금결제방법", "잔금직원", "총받은금액", "남은금액", "정산상태", "택배여부"]];
+  state.visits.forEach((visit) => {
+    const customer = getCustomer(visit.customerId) || {};
+    rows.push([
+      visit.customerId,
+      customer.name || "",
+      customer.phone || "",
+      customer.childName || "",
+      customer.address || "",
+      visit.visitNo,
+      visit.date,
+      visit.shootType,
+      visit.productName || "",
+      visit.totalAmount || 0,
+      visit.deposit,
+      visit.depositPaymentMethod || "계좌",
+      visit.balance,
+      visit.balancePaymentMethod || "",
+      visit.balancePaymentStaff || "",
+      getPaidAmount(visit),
+      getRemainingAmount(visit),
+      getSettlementStatus(visit),
+      visit.deliveryStatus || "없음",
+    ]);
+  });
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  downloadFile(`boso-visits-${toDateInput(new Date())}.csv`, "\ufeff" + csv, "text/csv;charset=utf-8");
+}
+
+function importJson(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const imported = JSON.parse(reader.result);
+      state.customers = imported.customers || [];
+      state.visits = imported.visits || [];
+      state.reservations = imported.reservations || [];
+      state.settings = {
+        sheetWebhookUrl: "",
+        calendarId: DEFAULT_CALENDAR_ID,
+        calendarDuration: 60,
+        ...(imported.settings || {}),
+      };
+      state.selectedCustomerId = null;
+      migrateState();
+      saveState();
+      $("#sheetWebhookUrl").value = state.settings.sheetWebhookUrl || "";
+      $("#calendarId").value = state.settings.calendarId || DEFAULT_CALENDAR_ID;
+      $("#calendarDuration").value = state.settings.calendarDuration || 60;
+      renderAll();
+      showToast("백업을 복원했습니다.");
+    } catch {
+      showToast("JSON 파일을 읽지 못했습니다.");
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = "";
+}
+
+function nextCustomerId() {
+  const year = new Date().getFullYear();
+  const prefix = `${year}-`;
+  const last = state.customers
+    .map((customer) => customer.id)
+    .filter((id) => id.startsWith(prefix))
+    .map((id) => Number(id.split("-").pop()))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0] || 0;
+  return `${prefix}${String(last + 1).padStart(4, "0")}`;
+}
+
+function newId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getCustomer(id) {
+  return state.customers.find((customer) => customer.id === id);
+}
+
+function getVisits(customerId) {
+  return state.visits.filter((visit) => visit.customerId === customerId);
+}
+
+function normalize(value) {
+  return String(value || "").replace(/\s/g, "").toLowerCase();
+}
+
+function formatWon(value) {
+  return `${Number(value || 0).toLocaleString("ko-KR")}원`;
+}
+
+function formatCompactWon(value) {
+  const amount = Number(value || 0);
+  if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString("ko-KR")}만`;
+  return amount.toLocaleString("ko-KR");
+}
+
+function getVisitRevenue(visit) {
+  return Number(visit.totalAmount || 0) || getPaidAmount(visit);
+}
+
+function getPaidAmount(visit) {
+  return Number(visit.deposit || 0) + Number(visit.balance || 0);
+}
+
+function getRemainingAmount(visit) {
+  return Math.max(Number(visit.totalAmount || 0) - getPaidAmount(visit), 0);
+}
+
+function getSettlementStatus(visit) {
+  return getRemainingAmount(visit) <= 0 ? "정산완료" : "잔금있음";
+}
+
+function normalizeCalendarId(value) {
+  if (!value) return "";
+  const trimmed = value.trim();
+
+  try {
+    const url = new URL(trimmed);
+    const cid = url.searchParams.get("cid");
+    if (cid) return decodeBase64Url(cid);
+  } catch {
+    // Plain calendar IDs are not URLs.
+  }
+
+  return trimmed;
+}
+
+function encodeBase64Url(value) {
+  return btoa(unescape(encodeURIComponent(value)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function decodeBase64Url(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return decodeURIComponent(escape(atob(padded)));
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const [year, month, day] = value.split("-");
+  return `${year}.${month}.${day}`;
+}
+
+function toMonthKey(date) {
+  return toDateInput(date).slice(0, 7);
+}
+
+function lastMonths(count) {
+  const result = [];
+  const cursor = new Date();
+  cursor.setDate(1);
+
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const date = new Date(cursor);
+    date.setMonth(cursor.getMonth() - index);
+    result.push(toMonthKey(date));
+  }
+
+  return result;
+}
+
+function toDateInput(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function downloadFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function filesToDataUrls(files) {
+  return Promise.all(
+    Array.from(files).map((file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+          const maxSide = 1600;
+          const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(image.width * scale);
+          canvas.height = Math.round(image.height * scale);
+          const context = canvas.getContext("2d");
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve({
+            name: file.name,
+            type: "image/jpeg",
+            dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+          });
+        };
+        image.onerror = reject;
+        image.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    })),
+  );
+}
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(DB_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readPersistedState() {
+  try {
+    const db = await openDatabase();
+    const value = await idbRequest(db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(STORAGE_KEY));
+    db.close();
+    if (value) return value;
+  } catch {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  }
+
+  const saved = localStorage.getItem(STORAGE_KEY);
+  return saved ? JSON.parse(saved) : null;
+}
+
+async function persistState(value) {
+  const db = await openDatabase();
+  await idbRequest(db.transaction(DB_STORE, "readwrite").objectStore(DB_STORE).put(JSON.parse(JSON.stringify(value)), STORAGE_KEY));
+  db.close();
+}
+
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function showToast(message) {
+  const toast = $("#toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+init();
