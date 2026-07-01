@@ -107,7 +107,12 @@ function migrateState() {
 
   state.reservations.forEach((reservation) => {
     if (idMap.has(reservation.customerId)) reservation.customerId = idMap.get(reservation.customerId);
+    reservation.time = reservation.time || "";
+    reservation.sourceVisitId = reservation.sourceVisitId || "";
+    reservation.autoFromVisit = Boolean(reservation.autoFromVisit);
   });
+
+  syncUpcomingVisitsToReservations();
 }
 
 function seedSampleData() {
@@ -221,6 +226,7 @@ function switchView(view) {
 }
 
 function renderAll() {
+  syncUpcomingVisitsToReservations();
   renderDashboard();
   renderCustomers();
   renderReservations();
@@ -538,7 +544,9 @@ function deleteVisit(visitId) {
   if (!confirm(message)) return;
 
   state.visits = state.visits.filter((item) => item.id !== visitId);
+  state.reservations = state.reservations.filter((item) => item.sourceVisitId !== visitId);
   renumberVisits(visit.customerId);
+  syncUpcomingVisitsToReservations();
   saveState();
   renderAll();
   showToast("방문/촬영 기록이 삭제되었습니다.");
@@ -587,15 +595,20 @@ function renderReservations() {
 function renderReservationItem(reservation) {
   const customer = getCustomer(reservation.customerId);
   const statusClass = reservation.status === "예약" ? "" : reservation.status === "촬영완료" ? "done" : "warning";
+  const timeText = formatReservationTime(reservation.time);
+  const autoLabel = reservation.autoFromVisit ? `<span class="badge">자동</span>` : "";
   return `
     <article class="list-item">
       <div class="item-top">
         <div>
-          <div class="item-title">${formatDate(reservation.date)} ${reservation.time} · ${escapeHtml(customer?.name || "삭제된 고객")}</div>
+          <div class="item-title">${formatDate(reservation.date)} ${timeText} · ${escapeHtml(customer?.name || "삭제된 고객")}</div>
           <div class="item-meta">${escapeHtml(customer?.phone || "-")} · ${escapeHtml(reservation.shootType)}${reservation.productName ? ` · ${escapeHtml(reservation.productName)}` : ""} · 담당 ${escapeHtml(reservation.staff || "-")}</div>
           ${reservation.memo ? `<div class="item-meta">${escapeHtml(reservation.memo)}</div>` : ""}
         </div>
-        <span class="badge ${statusClass}">${escapeHtml(reservation.status)}</span>
+        <div class="status-stack">
+          ${autoLabel}
+          <span class="badge ${statusClass}">${escapeHtml(reservation.status)}</span>
+        </div>
       </div>
       <div class="button-row reservation-actions">
         <button class="secondary-button edit-reservation" data-reservation-id="${escapeHtml(reservation.id)}">예약 수정</button>
@@ -657,6 +670,7 @@ function handleCustomerSubmit(event) {
     });
   }
   state.selectedCustomerId = customer.id;
+  syncUpcomingVisitsToReservations();
   saveState();
   $("#customerModal").close();
   renderAll();
@@ -713,6 +727,7 @@ async function handleVisitSubmit(event) {
   } else {
     state.visits.unshift(visit);
   }
+  syncUpcomingVisitsToReservations();
   saveState();
   $("#visitModal").close();
   renderAll();
@@ -790,13 +805,64 @@ function deleteReservation(reservationId) {
   if (!reservation) return;
 
   const customer = getCustomer(reservation.customerId);
-  const message = `${formatDate(reservation.date)} ${reservation.time} · ${customer?.name || "삭제된 고객"} 예약을 삭제할까요?`;
+  const message = `${formatDate(reservation.date)} ${formatReservationTime(reservation.time)} · ${customer?.name || "삭제된 고객"} 예약을 삭제할까요?`;
   if (!confirm(message)) return;
 
   state.reservations = state.reservations.filter((item) => item.id !== reservationId);
   saveState();
   renderAll();
   showToast("예약이 삭제되었습니다.");
+}
+
+function syncUpcomingVisitsToReservations() {
+  const today = toDateInput(new Date());
+  const visitsById = new Map(state.visits.map((visit) => [visit.id, visit]));
+
+  state.reservations = state.reservations.filter((reservation) => {
+    if (!reservation.autoFromVisit) return true;
+    const visit = visitsById.get(reservation.sourceVisitId);
+    return Boolean(visit && visit.date >= today);
+  });
+
+  state.visits.forEach((visit) => {
+    if (!visit.id || !visit.date || visit.date < today) return;
+
+    const existingAuto = state.reservations.find((reservation) => reservation.sourceVisitId === visit.id);
+    const existingManual = state.reservations.find((reservation) =>
+      !reservation.autoFromVisit &&
+      reservation.customerId === visit.customerId &&
+      reservation.date === visit.date &&
+      reservation.shootType === visit.shootType &&
+      (reservation.productName || "") === (visit.productName || "")
+    );
+
+    if (existingManual) return;
+
+    const reservation = {
+      id: existingAuto?.id || newId(),
+      customerId: visit.customerId,
+      date: visit.date,
+      time: existingAuto?.time || "",
+      shootType: visit.shootType || "기타",
+      productName: visit.productName || "",
+      staff: existingAuto?.staff || "",
+      status: existingAuto?.status || "예약",
+      memo: existingAuto?.memo || visit.memo || "방문/촬영 기록에서 자동 등록",
+      createdAt: existingAuto?.createdAt || new Date().toISOString(),
+      sourceVisitId: visit.id,
+      autoFromVisit: true,
+    };
+
+    if (existingAuto) {
+      Object.assign(existingAuto, reservation);
+    } else {
+      state.reservations.push(reservation);
+    }
+  });
+}
+
+function formatReservationTime(time) {
+  return time || "시간미정";
 }
 
 function fillCustomerSelect() {

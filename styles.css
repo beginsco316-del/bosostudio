@@ -354,6 +354,14 @@ textarea {
   gap: 10px;
 }
 
+.status-stack {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .item-title {
   font-weight: 800;
 }
