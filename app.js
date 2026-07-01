@@ -70,6 +70,14 @@ async function loadState() {
     return;
   }
 
+  const initialData = await readInitialData();
+  if (initialData) {
+    Object.assign(state, initialData);
+    migrateState();
+    saveState();
+    return;
+  }
+
   seedSampleData();
   migrateState();
   saveState();
@@ -1344,6 +1352,18 @@ async function readPersistedState() {
 
   const saved = localStorage.getItem(STORAGE_KEY);
   return saved ? JSON.parse(saved) : null;
+}
+
+async function readInitialData() {
+  try {
+    const response = await fetch("initial-data.json", { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || !Array.isArray(data.customers)) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 async function persistState(value) {
