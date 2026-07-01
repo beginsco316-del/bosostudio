@@ -103,6 +103,7 @@ function migrateState() {
 
   state.visits.forEach((visit) => {
     if (idMap.has(visit.customerId)) visit.customerId = idMap.get(visit.customerId);
+    visit.shootTime = visit.shootTime || "";
     visit.totalAmount = Number(visit.totalAmount || Number(visit.deposit || 0) + Number(visit.balance || 0));
     visit.deposit = Number(visit.deposit || 0);
     visit.balance = Number(visit.balance || 0);
@@ -365,7 +366,7 @@ function renderCustomerListItem(customer) {
     ? visits.map((visit) => `
       <div class="shoot-history-row">
         <span class="shoot-history-no">${visit.visitNo}회</span>
-        <span>${formatDate(visit.date)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""}</span>
+        <span>${formatVisitDateTime(visit)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""}</span>
       </div>`).join("")
     : `<div class="shoot-history-row muted">촬영 기록 없음</div>`;
   const selected = state.selectedCustomerId === customer.id ? " selected" : "";
@@ -376,7 +377,7 @@ function renderCustomerListItem(customer) {
           <div class="item-title">${escapeHtml(customer.name)} <span class="badge">${customer.id}</span></div>
           <div class="item-meta">${escapeHtml(customer.phone)} · 아이: ${escapeHtml(customer.childName || "-")}</div>
           ${customer.address ? `<div class="item-meta">주소: ${escapeHtml(customer.address)}</div>` : ""}
-          <div class="item-meta fixed-first-shoot">첫 촬영: ${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}${firstVisit.productName ? ` · ${escapeHtml(firstVisit.productName)}` : ""}` : "기록 없음"}</div>
+          <div class="item-meta fixed-first-shoot">첫 촬영: ${firstVisit ? `${formatVisitDateTime(firstVisit)} · ${escapeHtml(firstVisit.shootType)}${firstVisit.productName ? ` · ${escapeHtml(firstVisit.productName)}` : ""}` : "기록 없음"}</div>
         </div>
         <span class="badge ${visits.length > 1 ? "done" : ""}">${visits.length}회</span>
       </div>
@@ -412,8 +413,8 @@ function renderCustomerDetail() {
     </div>
     <div class="detail-grid">
       <div class="info-box"><span>총 방문</span><strong>${visits.length}회</strong></div>
-      <div class="info-box"><span>첫 촬영</span><strong>${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}` : "-"}</strong></div>
-      <div class="info-box"><span>최근 촬영</span><strong>${visits[0] ? `${formatDate(visits[0].date)} · ${escapeHtml(visits[0].shootType)}` : "-"}</strong></div>
+      <div class="info-box"><span>첫 촬영</span><strong>${firstVisit ? `${formatVisitDateTime(firstVisit)} · ${escapeHtml(firstVisit.shootType)}` : "-"}</strong></div>
+      <div class="info-box"><span>최근 촬영</span><strong>${visits[0] ? `${formatVisitDateTime(visits[0])} · ${escapeHtml(visits[0].shootType)}` : "-"}</strong></div>
       <div class="info-box"><span>아이 정보</span><strong>${escapeHtml(customer.childInfo || "-")}</strong></div>
     </div>
     ${customer.memo ? `<div class="list-item"><strong>고객 메모</strong><div class="item-meta">${escapeHtml(customer.memo)}</div></div>` : ""}
@@ -489,7 +490,7 @@ function renderVisitDetail(visit) {
       <div class="item-top">
         <div>
           <div class="item-title">${visit.visitNo}번째 방문 · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""}</div>
-          <div class="item-meta">${formatDate(visit.date)} · 총금액 ${formatWon(visit.totalAmount)} · 총 받은 금액 ${formatWon(paidAmount)} · 남은 금액 ${formatWon(remainingAmount)}</div>
+          <div class="item-meta">${formatVisitDateTime(visit)} · 총금액 ${formatWon(visit.totalAmount)} · 총 받은 금액 ${formatWon(paidAmount)} · 남은 금액 ${formatWon(remainingAmount)}</div>
         </div>
         <span class="badge ${settlementStatus === "정산완료" ? "done" : "warning"}">${settlementStatus}</span>
       </div>
@@ -514,6 +515,7 @@ function openVisitCreator(customerId) {
   form.visitId.value = "";
   form.customerId.value = customerId;
   form.date.value = toDateInput(new Date());
+  form.shootTime.value = "";
   form.totalAmount.value = 0;
   form.deposit.value = 0;
   form.balance.value = 0;
@@ -530,6 +532,7 @@ function openVisitEditor(visitId) {
   form.visitId.value = visit.id;
   form.customerId.value = visit.customerId;
   form.date.value = visit.date || "";
+  form.shootTime.value = visit.shootTime || "";
   form.shootType.value = visit.shootType || "아기사진";
   form.productName.value = visit.productName || "";
   form.totalAmount.value = visit.totalAmount || 0;
@@ -575,7 +578,7 @@ function renderVisitSummary(visit) {
       <div class="item-top">
         <div>
           <div class="item-title">${escapeHtml(customer?.name || "삭제된 고객")} · ${visit.visitNo}번째 방문</div>
-          <div class="item-meta">${formatDate(visit.date)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""} · 사진 ${visit.photos?.length || 0}장</div>
+          <div class="item-meta">${formatVisitDateTime(visit)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""} · 사진 ${visit.photos?.length || 0}장</div>
         </div>
         <span class="badge">${escapeHtml(visit.customerId)}</span>
       </div>
@@ -663,6 +666,7 @@ function handleCustomerSubmit(event) {
       customerId: customer.id,
       visitNo: 1,
       date: form.get("firstVisitDate"),
+      shootTime: "",
       shootType: form.get("firstShootType"),
       productName: form.get("firstProductName").trim(),
       totalAmount: 0,
@@ -716,6 +720,7 @@ async function handleVisitSubmit(event) {
     customerId,
     visitNo: existingVisit?.visitNo || getVisits(customerId).length + 1,
     date: form.get("date"),
+    shootTime: form.get("shootTime") || "",
     shootType: form.get("shootType"),
     productName: form.get("productName").trim(),
     totalAmount: Number(form.get("totalAmount") || 0),
@@ -850,7 +855,7 @@ function syncUpcomingVisitsToReservations() {
       id: existingAuto?.id || newId(),
       customerId: visit.customerId,
       date: visit.date,
-      time: existingAuto?.time || "",
+      time: existingAuto?.time || visit.shootTime || "",
       shootType: visit.shootType || "기타",
       productName: visit.productName || "",
       staff: existingAuto?.staff || "",
@@ -871,6 +876,10 @@ function syncUpcomingVisitsToReservations() {
 
 function formatReservationTime(time) {
   return time || "시간미정";
+}
+
+function formatVisitDateTime(visit) {
+  return `${formatDate(visit.date)}${visit.shootTime ? ` ${visit.shootTime}` : ""}`;
 }
 
 function fillCustomerSelect() {
