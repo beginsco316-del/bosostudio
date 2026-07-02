@@ -84,6 +84,7 @@ async function loadState() {
 }
 
 function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   persistState(state).catch(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   });
@@ -227,6 +228,11 @@ function bindEvents() {
 }
 
 function switchView(view) {
+  syncUpcomingVisitsToReservations();
+  renderDashboard();
+  renderCustomers();
+  renderReservations();
+  fillCustomerSelect();
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$(".view").forEach((section) => section.classList.remove("active"));
   $(`#${view}View`).classList.add("active");
