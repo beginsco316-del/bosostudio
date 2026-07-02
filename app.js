@@ -253,10 +253,11 @@ function renderDashboard() {
   $("#totalCustomers").textContent = state.customers.length;
   $("#totalVisits").textContent = state.visits.length;
   $("#upcomingReservations").textContent = state.reservations.filter((r) => r.status === "예약" && r.date >= toDateInput(new Date())).length;
-  $("#unpaidBalance").textContent = formatWon(state.visits.reduce((sum, visit) => sum + getRemainingAmount(visit), 0));
+  $("#unpaidBalance").textContent = formatWon(state.visits.reduce((sum, visit) => sum + getVisitRevenue(visit), 0));
   $("#currentMonthRevenue").textContent = `이번 달 ${formatWon(revenue.currentMonthTotal)}`;
   $("#currentMonthVisitCount").textContent = `${revenue.currentMonthVisitCount}건`;
   $("#monthlyRevenueChart").innerHTML = renderMonthlyRevenueChart(revenue.monthly);
+  $("#monthlyRevenueList").innerHTML = renderMonthlyRevenueList(revenue.monthly);
   $("#shootTypeRevenueList").innerHTML = renderShootTypeRevenue(revenue.byShootType);
 
   const today = toDateInput(new Date());
@@ -321,6 +322,17 @@ function renderMonthlyRevenueChart(monthly) {
         <div class="revenue-month">${item.month.slice(5)}월</div>
       </div>`;
   }).join("");
+}
+
+function renderMonthlyRevenueList(monthly) {
+  return monthly
+    .filter((item) => item.total > 0)
+    .map((item) => `
+      <div class="monthly-revenue-row">
+        <span>${item.month.slice(0, 4)}년 ${item.month.slice(5)}월</span>
+        <strong>${formatWon(item.total)}</strong>
+      </div>`)
+    .join("") || `<div class="empty-state compact">월별 매출 기록이 없습니다.</div>`;
 }
 
 function renderShootTypeRevenue(items) {
