@@ -792,13 +792,9 @@ async function handleReservationSubmit(event) {
   $("#reservationModal").close();
   renderAll();
   switchView("reservations");
-  if (existingReservation) {
-    showToast("예약이 수정되었습니다.");
-    return;
-  }
-
   const calendarSynced = await syncCalendarAfterReservation(reservation);
-  showToast(calendarSynced ? "예약이 등록되고 Google Calendar에 전송되었습니다." : "예약은 등록됐지만 Google Calendar 전송은 실패했습니다.");
+  const actionText = existingReservation ? "수정" : "등록";
+  showToast(calendarSynced ? `예약이 ${actionText}되고 Google Calendar에 전송되었습니다.` : `예약은 ${actionText}됐지만 Google Calendar 전송은 실패했습니다.`);
 }
 
 function openReservationCreator() {
