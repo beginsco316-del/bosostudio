@@ -1,4 +1,5 @@
 const DEFAULT_CALENDAR_ID = "cf68d0dee8e4775e5f4ccd99b64727c9932f5512b08e8e7f8aa04ade1df853a0@group.calendar.google.com";
+const STUDIO_SPREADSHEET_NAME = "BOSO Studio Data";
 
 function doGet(e) {
   if (e && e.parameter && e.parameter.action === "syncCalendarReservation") {
@@ -243,7 +244,7 @@ function parseDateTime(dateValue, timeValue) {
 }
 
 function writeStudioData(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getStudioSpreadsheet();
 
   writeSheet(ss, "Customers", [
     ["고객번호", "고객명", "전화번호", "아이이름", "아이정보", "주소", "메모", "등록일"]
@@ -301,7 +302,7 @@ function writeStudioData(data) {
 }
 
 function readStudioData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getStudioSpreadsheet();
 
   return {
     customers: readRows(ss, "Customers").map(row => ({
@@ -350,6 +351,29 @@ function readStudioData() {
 
     exportedAt: new Date().toISOString()
   };
+}
+
+function getStudioSpreadsheet() {
+  const properties = PropertiesService.getScriptProperties();
+  const savedId = properties.getProperty("STUDIO_SPREADSHEET_ID");
+
+  if (savedId) {
+    try {
+      return SpreadsheetApp.openById(savedId);
+    } catch (error) {
+      properties.deleteProperty("STUDIO_SPREADSHEET_ID");
+    }
+  }
+
+  const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (activeSpreadsheet) {
+    properties.setProperty("STUDIO_SPREADSHEET_ID", activeSpreadsheet.getId());
+    return activeSpreadsheet;
+  }
+
+  const newSpreadsheet = SpreadsheetApp.create(STUDIO_SPREADSHEET_NAME);
+  properties.setProperty("STUDIO_SPREADSHEET_ID", newSpreadsheet.getId());
+  return newSpreadsheet;
 }
 
 function writeSheet(ss, name, header, rows) {
