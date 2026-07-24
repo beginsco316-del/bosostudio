@@ -547,6 +547,7 @@ function renderVisitDetail(visit) {
       ${photoMarkup}
       <div class="button-row">
         <button class="secondary-button edit-visit" data-visit-id="${escapeHtml(visit.id)}">수정</button>
+        <button class="secondary-button danger-button delete-visit" type="button" data-visit-id="${escapeHtml(visit.id)}">삭제</button>
       </div>
     </article>`;
 }
@@ -679,6 +680,7 @@ function renderReservationItem(reservation) {
       ${paidMarkup}
       ${isVisitRecord ? `<div class="button-row reservation-actions">
         <button class="secondary-button edit-visit" type="button" data-visit-id="${escapeHtml(reservation.visitId || "")}">예약/촬영/결제 수정</button>
+        <button class="secondary-button danger-button delete-visit" type="button" data-visit-id="${escapeHtml(reservation.visitId || "")}">삭제</button>
       </div>` : `<div class="button-row reservation-actions">
         <button class="primary-button complete-reservation" type="button" data-reservation-id="${escapeHtml(reservation.id)}">${actionLabel}</button>
         <button class="secondary-button danger-button delete-reservation" type="button" data-reservation-id="${escapeHtml(reservation.id)}">삭제</button>
@@ -950,6 +952,12 @@ function handleReservationActionClick(event) {
     return;
   }
 
+  const deleteVisitButton = event.target.closest(".delete-visit");
+  if (deleteVisitButton) {
+    deleteVisit(deleteVisitButton.dataset.visitId);
+    return;
+  }
+
   const deleteButton = event.target.closest(".delete-reservation");
   if (deleteButton) {
     deleteReservation(deleteButton.dataset.reservationId);
@@ -1002,6 +1010,19 @@ async function deleteReservation(reservationId) {
   queueCloudSync();
   renderAll();
   showToast(calendarSynced ? "예약을 삭제하고 Google Calendar에서도 정리했습니다." : "예약은 삭제됐지만 Google Calendar 정리는 실패했습니다.");
+}
+
+function deleteVisit(visitId) {
+  const visit = state.visits.find((item) => item.id === visitId);
+  if (!visit) return;
+  if (!confirm("촬영/결제 기록을 삭제할까요? 삭제하면 해당 기록이 목록에서 사라집니다.")) return;
+
+  state.visits = state.visits.filter((item) => item.id !== visitId);
+  markLocalChange();
+  saveState();
+  queueCloudSync({ markChange: false });
+  renderAll();
+  showToast("촬영/결제 기록을 삭제했습니다.");
 }
 
 function fillCustomerSelect() {
