@@ -562,7 +562,7 @@ function renderReservations() {
       const haystack = normalize([customer?.name, customer?.phone, reservation.shootType, reservation.productName, reservation.staff, reservation.memo].join(" "));
       return !query || haystack.includes(query);
     })
-    .sort(compareTimelineItems);
+    .sort((a, b) => compareTimelineItems(b, a));
 
   $("#reservationList").innerHTML = timelineItems.length
     ? renderReservationTimeline(timelineItems)
