@@ -514,6 +514,31 @@ textarea {
   min-height: 620px;
 }
 
+.customer-list-panel {
+  position: sticky;
+  top: 18px;
+  align-self: start;
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+}
+
+.customer-list {
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.customer-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.customer-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cdd6df;
+}
+
 .detail-header {
   display: flex;
   justify-content: space-between;
@@ -761,6 +786,18 @@ dialog::backdrop {
   .detail-panel {
     min-height: 0;
   }
+
+  .customer-list-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .customer-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 
 @media (max-width: 640px) {
@@ -881,6 +918,18 @@ dialog::backdrop {
   .customer-list-panel,
   .detail-panel {
     min-height: 0;
+  }
+
+  .customer-list-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .customer-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .detail-grid {
