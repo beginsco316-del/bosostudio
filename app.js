@@ -981,6 +981,10 @@ function setReservationCustomerMode(mode) {
   $("#reservationCustomerSearchField").hidden = isNew;
   $$(".reservation-new-customer-field").forEach((field) => {
     field.hidden = !isNew;
+    field.querySelectorAll("input").forEach((input) => {
+      input.disabled = !isNew;
+      if (!isNew) input.value = "";
+    });
   });
 
   form.customerId.required = !isNew;
