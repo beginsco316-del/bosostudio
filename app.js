@@ -26,7 +26,7 @@ const state = {
 };
 
 const titles = {
-  dashboard: ["대시보드", "오늘 예약과 최근 방문 고객을 확인하세요."],
+  dashboard: ["대시보드", "촬영 예정 예약과 최근 방문 고객을 확인하세요."],
   customers: ["고객관리", "이름, 전화번호, 아이 이름으로 빠르게 찾아보세요."],
   reservations: ["예약관리", "예약 일정과 촬영 상태를 관리하세요."],
   settings: ["연동/백업", "Google Sheets 동기화와 백업을 관리하세요."],
@@ -341,14 +341,13 @@ function renderDashboard() {
   $("#monthlyRevenueChart").innerHTML = renderMonthlyRevenueChart(revenue.monthly);
   $("#shootTypeRevenueList").innerHTML = renderShootTypeRevenue(revenue.byShootType);
 
-  const today = toDateInput(new Date());
-  const todays = state.reservations
-    .filter((r) => r.date === today)
-    .sort((a, b) => a.time.localeCompare(b.time));
+  const shootReservations = state.reservations
+    .filter((reservation) => normalizeReservationStatus(reservation.status) === DEFAULT_RESERVATION_STATUS)
+    .sort(compareTimelineItems);
 
-  $("#todayReservationList").innerHTML = todays.length
-    ? todays.map(renderReservationItem).join("")
-    : `<div class="empty-state">오늘 예약이 없습니다.</div>`;
+  $("#todayReservationList").innerHTML = shootReservations.length
+    ? shootReservations.map(renderReservationItem).join("")
+    : `<div class="empty-state">촬영 예정 예약이 없습니다.</div>`;
 
   const recent = [...state.visits].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   $("#recentVisitList").innerHTML = recent.length
@@ -1591,9 +1590,10 @@ function normalizeReservationStatus(status) {
 }
 
 function getReservationStatusClass(status) {
-  if (status === DEFAULT_RESERVATION_STATUS) return "";
+  if (status === DEFAULT_RESERVATION_STATUS) return "reserved";
+  if (status === "촬영완료") return "shot";
   if (status === "발송완료") return "done";
-  if (status === "촬영완료" || status === "보정완료") return "progress";
+  if (status === "보정완료") return "progress";
   return "warning";
 }
 

@@ -453,6 +453,16 @@ textarea {
   color: #9a4b00;
 }
 
+.badge.reserved {
+  background: #fff7d6;
+  color: #7a5200;
+}
+
+.badge.shot {
+  background: #e7f5ff;
+  color: #11648f;
+}
+
 .badge.done {
   background: #eaf7ef;
   color: var(--green);
