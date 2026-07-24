@@ -232,7 +232,9 @@ async function init() {
 
   bindEvents();
   renderAll();
-  syncFromSheetsOnStartup();
+  await syncFromSheetsOnStartup();
+  await pullCalendar({ silent: true, notifyOnChange: true });
+  startAutoCalendarPull();
 }
 
 function bindEvents() {
@@ -1449,7 +1451,7 @@ function mergeCalendarReservations(calendarReservations) {
     result.customersAdded += customerResult.added ? 1 : 0;
     result.customersUpdated += customerResult.updated ? 1 : 0;
 
-    const existing = state.reservations.find((item) => item.id === reservation.id);
+    const existing = findExistingCalendarReservation(reservation, calendarReservation);
     if (!existing) {
       state.reservations.push(reservation);
       result.added += 1;
@@ -1457,15 +1459,46 @@ function mergeCalendarReservations(calendarReservations) {
     }
 
     if (hasReservationChanged(existing, reservation)) {
+      const previousReservation = { ...existing };
       Object.assign(existing, {
         ...reservation,
+        id: existing.id || reservation.id,
         createdAt: existing.createdAt || reservation.createdAt,
       });
+      syncLinkedVisitFromReservation(existing, previousReservation);
       result.updated += 1;
     }
   });
 
   return result;
+}
+
+function findExistingCalendarReservation(reservation, calendarReservation) {
+  return state.reservations.find((item) => item.id === reservation.id)
+    || state.reservations.find((item) => calendarReservation.calendarEventId && item.calendarEventId === calendarReservation.calendarEventId)
+    || state.reservations.find((item) => (
+      item.customerId === reservation.customerId
+      && normalize(item.shootType) === normalize(reservation.shootType)
+      && (!item.productName || !reservation.productName || normalize(item.productName) === normalize(reservation.productName))
+      && Math.abs(daysBetween(item.date, reservation.date)) <= 90
+    ));
+}
+
+function syncLinkedVisitFromReservation(reservation, previousReservation) {
+  const linkedVisit = getVisitByReservationId(reservation.id)
+    || state.visits.find((visit) => (
+      visit.customerId === reservation.customerId
+      && visit.date === previousReservation.date
+      && normalize(visit.shootType) === normalize(previousReservation.shootType)
+      && (!visit.productName || !previousReservation.productName || normalize(visit.productName) === normalize(previousReservation.productName))
+    ));
+  if (!linkedVisit) return;
+
+  linkedVisit.reservationId = reservation.id;
+  linkedVisit.date = reservation.date || linkedVisit.date;
+  linkedVisit.shootType = reservation.shootType || linkedVisit.shootType;
+  linkedVisit.productName = reservation.productName || linkedVisit.productName;
+  linkedVisit.memo = reservation.memo || linkedVisit.memo;
 }
 
 function ensureCalendarCustomer(calendarReservation) {
@@ -1730,6 +1763,13 @@ function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function daysBetween(firstDate, secondDate) {
+  const first = Date.parse(firstDate);
+  const second = Date.parse(secondDate);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return Number.POSITIVE_INFINITY;
+  return Math.round(Math.abs(first - second) / 86400000);
 }
 
 function toDateInput(date) {
