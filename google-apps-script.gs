@@ -111,108 +111,6 @@ function getExistingReservationEvents(calendar) {
   return map;
 }
 
-function readCalendarReservations(data) {
-  const calendar = getTargetCalendar(data.calendarId);
-  const now = new Date();
-  const rangeStart = parseCalendarRangeDate(data.rangeStart, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 180));
-  const rangeEnd = parseCalendarRangeDate(data.rangeEnd, new Date(now.getFullYear(), now.getMonth(), now.getDate() + 365));
-  const events = calendar.getEvents(rangeStart, rangeEnd);
-
-  return events.map(event => calendarEventToReservation(event));
-}
-
-function calendarEventToReservation(event) {
-  const description = event.getDescription() || "";
-  const fields = parseDescriptionFields(description);
-  const titleInfo = parseCalendarTitle(event.getTitle());
-  const reservationId = fields["예약ID"] || event.getTag("bosoReservationId") || makeCalendarReservationId(event);
-  const contact = parseContactInfo(event.getTitle(), description);
-
-  if (!event.getTag("bosoReservationId")) {
-    event.setTag("bosoReservationId", reservationId);
-  }
-
-  return {
-    id: reservationId,
-    customerId: fields["고객번호"] || "",
-    customerName: fields["고객명"] || contact.name || titleInfo.customerName || "",
-    customerPhone: fields["전화번호"] || contact.phone || "",
-    childName: fields["아이 이름"] || fields["아이이름"] || "",
-    date: Utilities.formatDate(event.getStartTime(), Session.getScriptTimeZone(), "yyyy-MM-dd"),
-    time: event.isAllDayEvent() ? "00:00" : Utilities.formatDate(event.getStartTime(), Session.getScriptTimeZone(), "HH:mm"),
-    shootType: fields["촬영종류"] || titleInfo.shootType || event.getTitle(),
-    productName: fields["촬영상품"] || titleInfo.productName || "",
-    staff: fields["담당 직원"] || fields["담당직원"] || "",
-    status: fields["상태"] || "예약",
-    memo: extractCalendarMemo(description),
-    calendarEventId: event.getId(),
-    calendarUpdatedAt: event.getLastUpdated().toISOString(),
-    createdAt: event.getDateCreated().toISOString()
-  };
-}
-
-function parseContactInfo(title, description) {
-  const text = [title || "", description || ""].join("\n");
-  const phoneMatch = text.match(/01[016789][\\s.-]*\\d{3,4}[\\s.-]*\\d{4}/);
-  const phone = phoneMatch ? phoneMatch[0].replace(/[^0-9]/g, "").replace(/^(\\d{3})(\\d{3,4})(\\d{4})$/, "$1-$2-$3") : "";
-  let name = "";
-  const labeledName = text.match(/예약자\\s*성함\\s*,?\\s*연락처\\s*[:：]\\s*([^\\n\\d,()]+)/);
-  if (labeledName) name = labeledName[1].trim();
-  if (!name) {
-    const parenName = String(title || "").match(/[\\(（]([^\\)_）]+)[_\\)）]/);
-    if (parenName) name = parenName[1].trim();
-  }
-  if (!name) {
-    const underscoreName = String(title || "").split("_").pop();
-    if (underscoreName && underscoreName !== title) name = underscoreName.trim();
-  }
-  return { name: name, phone: phone };
-}
-
-function makeCalendarReservationId(event) {
-  return "cal-" + String(event.getId()).replace(/[^A-Za-z0-9_-]/g, "_");
-}
-
-function parseCalendarTitle(title) {
-  const cleaned = String(title || "").replace(/^\[보소사진관\]\s*/, "").trim();
-  const separator = " - ";
-
-  if (cleaned.indexOf(separator) === -1) {
-    return { customerName: cleaned, shootType: "촬영", productName: "" };
-  }
-
-  const parts = cleaned.split(separator);
-  const customerName = parts.shift().trim();
-  const shootText = parts.join(separator).trim();
-  const shootParts = shootText.split(" · ").map(part => part.trim()).filter(Boolean);
-
-  return {
-    customerName: customerName,
-    shootType: shootParts[0] || "촬영",
-    productName: shootParts.slice(1).join(" · ")
-  };
-}
-
-function parseDescriptionFields(description) {
-  const fields = {};
-  String(description || "").split(/\r?\n/).forEach(line => {
-    const index = line.indexOf(":");
-    if (index === -1) return;
-    const key = line.slice(0, index).trim();
-    const value = line.slice(index + 1).trim();
-    if (key) fields[key] = value;
-  });
-  return fields;
-}
-
-function extractCalendarMemo(description) {
-  const marker = "메모:";
-  const text = String(description || "");
-  const index = text.indexOf(marker);
-  if (index === -1) return text.trim();
-  return text.slice(index + marker.length).trim();
-}
-
 function buildCalendarTitle(reservation) {
   const name = reservation.customerName || "고객";
   const type = [reservation.shootType, reservation.productName].filter(Boolean).join(" · ") || "촬영";
@@ -425,13 +323,6 @@ function readRows(ss, name) {
     });
     return item;
   });
-}
-
-function parseCalendarRangeDate(value, fallback) {
-  if (!value) return fallback;
-  const parts = String(value).slice(0, 10).split("-").map(Number);
-  if (parts.length !== 3 || parts.some(isNaN)) return fallback;
-  return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
 function normalizeDate(value) {

@@ -5,6 +5,7 @@ const DB_VERSION = 1;
 const DEFAULT_CALENDAR_ID = "cf68d0dee8e4775e5f4ccd99b64727c9932f5512b08e8e7f8aa04ade1df853a0@group.calendar.google.com";
 const DEFAULT_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzMdYQeGIAB-MnvxRMI_orjFUczKTI3BCQLZ0lkSuGANkTDuQflYStN86weDpfksHlt/exec";
 let cloudSyncTimer = null;
+let lastCalendarImportCleanupCount = 0;
 
 const state = {
   customers: [],
@@ -139,7 +140,44 @@ function migrateState() {
     reservation.updatedAt = reservation.updatedAt || reservation.createdAt || "";
   });
 
+  removeCalendarImportedData();
   inferVisitReservationLinks();
+}
+
+function removeCalendarImportedData() {
+  const importedCustomerIds = new Set(
+    state.customers
+      .filter((customer) => isCalendarImportedCustomer(customer))
+      .map((customer) => customer.id)
+  );
+  const importedReservationIds = new Set(
+    state.reservations
+      .filter((reservation) => isCalendarImportedReservation(reservation) || importedCustomerIds.has(reservation.customerId))
+      .map((reservation) => reservation.id)
+  );
+
+  const beforeCount = state.customers.length + state.reservations.length + state.visits.length;
+  state.reservations = state.reservations.filter((reservation) => !importedReservationIds.has(reservation.id));
+  state.visits = state.visits.filter((visit) => (
+    !importedCustomerIds.has(visit.customerId)
+    && !importedReservationIds.has(visit.reservationId)
+  ));
+  state.customers = state.customers.filter((customer) => !importedCustomerIds.has(customer.id));
+  if (importedCustomerIds.has(state.selectedCustomerId)) state.selectedCustomerId = null;
+
+  const afterCount = state.customers.length + state.reservations.length + state.visits.length;
+  lastCalendarImportCleanupCount = Math.max(beforeCount - afterCount, 0);
+  if (lastCalendarImportCleanupCount) markLocalChange();
+}
+
+function isCalendarImportedCustomer(customer) {
+  return String(customer?.memo || "").includes("Google Calendar에서 가져온 고객");
+}
+
+function isCalendarImportedReservation(reservation) {
+  return Boolean(reservation?.calendarEventId)
+    || String(reservation?.id || "").startsWith("cal-")
+    || String(reservation?.memo || "").includes("예약자 성함, 연락처");
 }
 
 function inferVisitReservationLinks() {
@@ -1125,12 +1163,14 @@ async function pullSheets() {
   try {
     const data = await fetchSheetJsonp(url);
     applySheetData(data);
+    const cleanedCalendarImports = lastCalendarImportCleanupCount > 0;
     state.settings.sheetWebhookUrl = url;
-    state.sync.pendingSheetPush = false;
+    if (!cleanedCalendarImports) state.sync.pendingSheetPush = false;
     state.sync.lastSheetPullAt = new Date().toISOString();
     state.selectedCustomerId = null;
     saveState();
     renderAll();
+    if (cleanedCalendarImports) queueCloudSync({ markChange: false });
     showToast("Google Sheets 데이터를 가져왔습니다.");
   } catch {
     showToast("가져오기에 실패했습니다. Apps Script 배포 상태를 확인하세요.");
@@ -1150,12 +1190,14 @@ async function syncFromSheetsOnStartup() {
     const data = await fetchSheetJsonp(url);
     if (!hasSheetData(data)) return;
     applySheetData(data);
+    const cleanedCalendarImports = lastCalendarImportCleanupCount > 0;
     state.settings.sheetWebhookUrl = url;
-    state.sync.pendingSheetPush = false;
+    if (!cleanedCalendarImports) state.sync.pendingSheetPush = false;
     state.sync.lastSheetPullAt = new Date().toISOString();
     state.selectedCustomerId = state.customers.some((customer) => customer.id === state.selectedCustomerId) ? state.selectedCustomerId : null;
     saveState();
     renderAll();
+    if (cleanedCalendarImports) queueCloudSync({ markChange: false });
   } catch {
     // Keep local browser data when the shared sheet is temporarily unavailable.
   }
