@@ -1293,6 +1293,7 @@ async function pullCalendar(options = {}) {
     if (result.added || result.updated || result.customersAdded || result.customersUpdated) {
       saveState();
       renderAll();
+      queueCloudSync();
     }
 
     const message = `캘린더에서 예약 ${result.added}건 추가, ${result.updated}건 수정했습니다.`;
