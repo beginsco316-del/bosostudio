@@ -121,6 +121,7 @@ function buildCalendarDescription(reservation) {
   return [
     "고객명: " + (reservation.customerName || ""),
     "전화번호: " + (reservation.customerPhone || ""),
+    "카카오톡 닉네임: " + (reservation.kakaoNickname || ""),
     "아이 이름: " + (reservation.childName || ""),
     "촬영종류: " + (reservation.shootType || ""),
     "촬영상품: " + (reservation.productName || ""),
@@ -145,11 +146,12 @@ function writeStudioData(data) {
   const ss = getStudioSpreadsheet();
 
   writeSheet(ss, "Customers", [
-    ["고객번호", "고객명", "전화번호", "아이이름", "아이정보", "주소", "메모", "등록일"]
+    ["고객번호", "고객명", "전화번호", "카카오톡닉네임", "아이이름", "아이정보", "주소", "메모", "등록일"]
   ], (data.customers || []).map(c => [
     c.id || "",
     c.name || "",
     c.phone || "",
+    c.kakaoNickname || "",
     c.childName || "",
     c.childInfo || "",
     c.address || "",
@@ -207,6 +209,7 @@ function readStudioData() {
       id: row["고객번호"] || "",
       name: row["고객명"] || "",
       phone: row["전화번호"] || "",
+      kakaoNickname: row["카카오톡닉네임"] || row["카카오톡 닉네임"] || "",
       childName: row["아이이름"] || "",
       childInfo: row["아이정보"] || "",
       address: row["주소"] || "",

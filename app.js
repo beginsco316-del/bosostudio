@@ -117,6 +117,7 @@ function migrateState() {
       customer.id = nextId;
     }
     customer.address = customer.address || "";
+    customer.kakaoNickname = customer.kakaoNickname || "";
     customer.updatedAt = customer.updatedAt || customer.createdAt || "";
   });
 
@@ -204,6 +205,7 @@ function seedSampleData() {
       phone: "010-1234-5678",
       childName: "서아",
       childInfo: "2025.02.10",
+      kakaoNickname: "",
       address: "서울시 강남구 샘플로 10",
       memo: "돌사진 문의 많음",
       createdAt: new Date().toISOString(),
@@ -282,6 +284,7 @@ function bindEvents() {
     fillCustomerSelect();
     setReservationCustomerMode(state.customers.length ? "existing" : "new");
     $("#reservationForm").date.value = toDateInput(new Date());
+    $("#reservationForm").status.value = DEFAULT_RESERVATION_STATUS;
     setReservationPaymentDefaults($("#reservationForm"));
     $("#reservationModal").showModal();
   });
@@ -425,7 +428,7 @@ function renderCustomers() {
 
   const customers = state.customers.filter((customer) => {
     const visitText = getVisits(customer.id).map((visit) => [visit.date, visit.shootType, visit.productName, visit.memo].join(" ")).join(" ");
-    const haystack = normalize([customer.id, customer.name, customer.phone, customer.childName, customer.childInfo, customer.address, customer.memo, visitText].join(" "));
+    const haystack = normalize([customer.id, customer.name, customer.phone, customer.kakaoNickname, customer.childName, customer.childInfo, customer.address, customer.memo, visitText].join(" "));
     const matchesQuery = !query || haystack.includes(query);
     const matchesShoot = !shootType || state.visits.some((visit) => visit.customerId === customer.id && visit.shootType === shootType);
     return matchesQuery && matchesShoot;
@@ -462,7 +465,7 @@ function renderCustomerListItem(customer) {
       <div class="item-top">
         <div>
           <div class="item-title">${escapeHtml(customer.name)} <span class="badge">${customer.id}</span></div>
-          <div class="item-meta">${escapeHtml(customer.phone)} · 아이: ${escapeHtml(customer.childName || "-")}</div>
+          <div class="item-meta">${escapeHtml(customer.phone)}${customer.kakaoNickname ? ` · 카톡: ${escapeHtml(customer.kakaoNickname)}` : ""} · 아이: ${escapeHtml(customer.childName || "-")}</div>
           ${customer.address ? `<div class="item-meta">주소: ${escapeHtml(customer.address)}</div>` : ""}
           <div class="item-meta fixed-first-shoot">첫 촬영: ${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}${firstVisit.productName ? ` · ${escapeHtml(firstVisit.productName)}` : ""}` : "기록 없음"}</div>
         </div>
@@ -489,7 +492,7 @@ function renderCustomerDetail() {
     <div class="detail-header">
       <div class="detail-title">
         <h2>${escapeHtml(customer.name)} <span class="badge">${customer.id}</span></h2>
-        <p class="muted">${escapeHtml(customer.phone)} · 아이: ${escapeHtml(customer.childName || "-")}</p>
+        <p class="muted">${escapeHtml(customer.phone)}${customer.kakaoNickname ? ` · 카톡: ${escapeHtml(customer.kakaoNickname)}` : ""} · 아이: ${escapeHtml(customer.childName || "-")}</p>
         ${customer.address ? `<p class="muted">주소: ${escapeHtml(customer.address)}</p>` : ""}
       </div>
       <div class="button-row detail-actions">
@@ -501,6 +504,7 @@ function renderCustomerDetail() {
       <div class="info-box"><span>총 방문</span><strong>${visits.length}회</strong></div>
       <div class="info-box"><span>첫 촬영</span><strong>${firstVisit ? `${formatDate(firstVisit.date)} · ${escapeHtml(firstVisit.shootType)}` : "-"}</strong></div>
       <div class="info-box"><span>최근 촬영</span><strong>${visits[0] ? `${formatDate(visits[0].date)} · ${escapeHtml(visits[0].shootType)}` : "-"}</strong></div>
+      <div class="info-box"><span>카카오톡닉네임</span><strong>${escapeHtml(customer.kakaoNickname || "-")}</strong></div>
       <div class="info-box"><span>아이 정보</span><strong>${escapeHtml(customer.childInfo || "-")}</strong></div>
     </div>
     ${customer.memo ? `<div class="list-item"><strong>고객 메모</strong><div class="item-meta">${escapeHtml(customer.memo)}</div></div>` : ""}
@@ -509,7 +513,7 @@ function renderCustomerDetail() {
   `;
 
   $("#addVisit").addEventListener("click", () => {
-    openNewReservationForCustomer(customer.id, { status: "촬영완료" });
+    openNewReservationForCustomer(customer.id);
   });
 
   $("#editCustomerInfo").addEventListener("click", () => openCustomerEditor(customer.id));
@@ -720,6 +724,7 @@ function handleCustomerSubmit(event) {
     id: existingCustomer?.id || nextCustomerId(),
     name: form.get("name").trim(),
     phone: form.get("phone").trim(),
+    kakaoNickname: form.get("kakaoNickname").trim(),
     childName: form.get("childName").trim(),
     childInfo: form.get("childInfo").trim(),
     address: form.get("address").trim(),
@@ -775,6 +780,7 @@ function openCustomerEditor(customerId) {
   $("#customerModalTitle").textContent = "고객정보 수정";
   form.name.value = customer.name || "";
   form.phone.value = customer.phone || "";
+  form.kakaoNickname.value = customer.kakaoNickname || "";
   form.childName.value = customer.childName || "";
   form.childInfo.value = customer.childInfo || "";
   form.address.value = customer.address || "";
@@ -1031,7 +1037,7 @@ function fillCustomerSelect() {
   const select = $("#reservationCustomerSelect");
   const query = normalize($("#reservationCustomerSearch")?.value || "");
   const customers = state.customers.filter((customer) => {
-    const haystack = normalize([customer.name, customer.phone, customer.childName, customer.id].join(" "));
+    const haystack = normalize([customer.name, customer.phone, customer.kakaoNickname, customer.childName, customer.id].join(" "));
     return !query || haystack.includes(query);
   });
   select.innerHTML = customers.length
@@ -1110,11 +1116,13 @@ function getReservationCustomerId(form, existingReservation) {
     id: nextCustomerId(),
     name,
     phone,
+    kakaoNickname: form.get("newKakaoNickname").trim(),
     childName: form.get("newChildName").trim(),
     childInfo: "",
     address: form.get("newAddress").trim(),
     memo: "예약 등록 시 생성한 고객",
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   state.customers.unshift(customer);
   return customer.id;
@@ -1233,6 +1241,7 @@ function applySheetData(data) {
 
   state.customers = mergeRecordsByFreshness(localCustomers, data.customers || [], (customer) => ({
     address: "",
+    kakaoNickname: "",
     memo: "",
     createdAt: new Date().toISOString(),
     updatedAt: "",
@@ -1344,6 +1353,7 @@ async function pushCalendar(options = {}) {
         ...reservation,
         customerName: customer?.name || "",
         customerPhone: customer?.phone || "",
+        kakaoNickname: customer?.kakaoNickname || "",
         childName: customer?.childName || "",
       };
     }),
@@ -1373,6 +1383,7 @@ async function syncCalendarAfterReservation(reservation) {
     ...reservation,
     customerName: customer?.name || "",
     customerPhone: customer?.phone || "",
+    kakaoNickname: customer?.kakaoNickname || "",
     childName: customer?.childName || "",
   };
 
@@ -1463,13 +1474,14 @@ function exportJson() {
 }
 
 function exportCsv() {
-  const rows = [["고객번호", "고객명", "전화번호", "아이이름", "주소", "방문회차", "촬영일", "촬영종류", "촬영상품", "총금액", "계약금받은금액", "계약금결제방법", "잔금받은금액", "잔금결제방법", "잔금직원", "총받은금액", "남은금액", "정산상태", "택배여부"]];
+  const rows = [["고객번호", "고객명", "전화번호", "카카오톡닉네임", "아이이름", "주소", "방문회차", "촬영일", "촬영종류", "촬영상품", "총금액", "계약금받은금액", "계약금결제방법", "잔금받은금액", "잔금결제방법", "잔금직원", "총받은금액", "남은금액", "정산상태", "택배여부"]];
   state.visits.forEach((visit) => {
     const customer = getCustomer(visit.customerId) || {};
     rows.push([
       visit.customerId,
       customer.name || "",
       customer.phone || "",
+      customer.kakaoNickname || "",
       customer.childName || "",
       customer.address || "",
       visit.visitNo,
