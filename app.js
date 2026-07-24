@@ -4,6 +4,7 @@ const DB_STORE = "app-state";
 const DB_VERSION = 1;
 const DEFAULT_CALENDAR_ID = "cf68d0dee8e4775e5f4ccd99b64727c9932f5512b08e8e7f8aa04ade1df853a0@group.calendar.google.com";
 const DEFAULT_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzMdYQeGIAB-MnvxRMI_orjFUczKTI3BCQLZ0lkSuGANkTDuQflYStN86weDpfksHlt/exec";
+const CALENDAR_SYNC_START_DATE = "2026-07-24";
 let cloudSyncTimer = null;
 let lastCalendarImportCleanupCount = 0;
 
@@ -940,11 +941,12 @@ async function handleReservationSubmit(event) {
   delete formElement.dataset.returnView;
   renderAll();
   switchView(returnView);
+  const shouldSyncCalendar = shouldSyncReservationToCalendar(reservation);
   const calendarSynced = await syncCalendarAfterReservation(reservation);
   const sheetSynced = await pushSheets({ silent: true });
   if (!sheetSynced) queueCloudSync({ markChange: false });
   const actionText = existingReservation ? "수정" : "등록";
-  showToast(calendarSynced ? `예약이 ${actionText}되고 Google Calendar에 반영되었습니다.` : `예약은 ${actionText}됐지만 Google Calendar 반영은 실패했습니다.`);
+  showToast(getReservationSaveMessage(actionText, shouldSyncCalendar, calendarSynced));
 }
 
 function handleReservationActionClick(event) {
@@ -1010,14 +1012,15 @@ async function deleteReservation(reservationId) {
     : "예약을 삭제할까요? 삭제하면 예약관리 목록에서 사라집니다.";
   if (!confirm(message)) return;
 
+  const shouldSyncCalendar = shouldSyncReservationToCalendar(reservation);
   const calendarReservation = { ...reservation, status: "취소" };
-  const calendarSynced = await syncCalendarAfterReservation(calendarReservation);
+  const calendarSynced = shouldSyncCalendar ? await syncCalendarAfterReservation(calendarReservation) : true;
   state.reservations = state.reservations.filter((item) => item.id !== reservationId);
   if (linkedVisit) state.visits = state.visits.filter((item) => item.id !== linkedVisit.id);
   saveState();
   queueCloudSync();
   renderAll();
-  showToast(calendarSynced ? "예약을 삭제하고 Google Calendar에서도 정리했습니다." : "예약은 삭제됐지만 Google Calendar 정리는 실패했습니다.");
+  showToast(!shouldSyncCalendar ? "예약을 삭제했습니다. 과거 기록은 Google Calendar 정리 대상이 아닙니다." : calendarSynced ? "예약을 삭제하고 Google Calendar에서도 정리했습니다." : "예약은 삭제됐지만 Google Calendar 정리는 실패했습니다.");
 }
 
 function deleteVisit(visitId) {
@@ -1347,7 +1350,7 @@ async function pushCalendar(options = {}) {
     action: "syncCalendar",
     calendarId: normalizeCalendarId(state.settings.calendarId) || DEFAULT_CALENDAR_ID,
     eventDurationMinutes: state.settings.calendarDuration || 60,
-    reservations: state.reservations.map((reservation) => {
+    reservations: state.reservations.filter(shouldSyncReservationToCalendar).map((reservation) => {
       const customer = getCustomer(reservation.customerId);
       return {
         ...reservation,
@@ -1378,6 +1381,7 @@ async function pushCalendar(options = {}) {
 async function syncCalendarAfterReservation(reservation) {
   const url = state.settings.sheetWebhookUrl || $("#sheetWebhookUrl").value.trim() || DEFAULT_WEBHOOK_URL;
   if (!url) return false;
+  if (!shouldSyncReservationToCalendar(reservation)) return true;
   const customer = getCustomer(reservation.customerId);
   const payload = {
     ...reservation,
@@ -1393,6 +1397,15 @@ async function syncCalendarAfterReservation(reservation) {
   } catch {
     return false;
   }
+}
+
+function shouldSyncReservationToCalendar(reservation) {
+  return Boolean(reservation?.date) && String(reservation.date).slice(0, 10) >= CALENDAR_SYNC_START_DATE;
+}
+
+function getReservationSaveMessage(actionText, shouldSyncCalendar, calendarSynced) {
+  if (!shouldSyncCalendar) return `예약이 ${actionText}되었습니다. ${CALENDAR_SYNC_START_DATE} 이전 기록은 Google Calendar에 올리지 않습니다.`;
+  return calendarSynced ? `예약이 ${actionText}되고 Google Calendar에 반영되었습니다.` : `예약은 ${actionText}됐지만 Google Calendar 반영은 실패했습니다.`;
 }
 
 function fetchCalendarReservationJsonp(url, reservation) {
