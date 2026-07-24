@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap");
+
 :root {
   color-scheme: light;
   --ink: #202124;
@@ -20,8 +22,11 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  font-family: "Noto Sans KR", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
   background: var(--bg);
+  overflow-x: hidden;
 }
 
 button,
@@ -118,10 +123,14 @@ p {
 
 h1 {
   font-size: 28px;
+  font-weight: 800;
+  line-height: 1.25;
 }
 
 h2 {
   font-size: 18px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 #pageSubTitle {
@@ -146,6 +155,8 @@ h2 {
 
 .metric,
 .panel {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -184,6 +195,8 @@ h2 {
   grid-template-columns: repeat(12, minmax(38px, 1fr));
   gap: 10px;
   align-items: end;
+  width: 100%;
+  min-width: 0;
   min-height: 190px;
   overflow-x: auto;
   padding-top: 8px;
@@ -223,29 +236,6 @@ h2 {
   font-size: 12px;
 }
 
-.monthly-revenue-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.monthly-revenue-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fafb;
-  font-size: 13px;
-}
-
-.monthly-revenue-row strong {
-  white-space: nowrap;
-}
-
 .panel {
   padding: 18px;
 }
@@ -256,6 +246,10 @@ h2 {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.button-row {
+  flex-wrap: wrap;
 }
 
 .panel-head {
@@ -278,6 +272,7 @@ label {
 input,
 textarea,
 select {
+  min-width: 0;
   width: 100%;
   border: 1px solid #ccd2da;
   border-radius: 8px;
@@ -297,7 +292,6 @@ textarea {
 
 .primary-button,
 .secondary-button,
-.danger-button,
 .ghost-button,
 .file-button,
 .icon-button {
@@ -310,6 +304,7 @@ textarea {
   justify-content: center;
   gap: 8px;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .primary-button {
@@ -329,9 +324,8 @@ textarea {
 }
 
 .danger-button {
-  background: #fff;
-  border-color: #f0b8b2;
-  color: var(--red);
+  border-color: #efb6ad;
+  color: #b3261e;
 }
 
 .danger-button:hover {
@@ -375,18 +369,30 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
-.status-stack {
-  display: inline-flex;
-  align-items: center;
+.reservation-actions {
   justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.timeline-divider {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 2px 4px;
+  color: var(--accent-strong);
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .item-title {
   font-weight: 800;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .item-meta {
@@ -394,6 +400,7 @@ textarea {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .fixed-first-shoot {
@@ -427,6 +434,7 @@ textarea {
 .badge {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-height: 24px;
   border-radius: 999px;
   padding: 0 9px;
@@ -444,6 +452,11 @@ textarea {
 .badge.done {
   background: #eaf7ef;
   color: var(--green);
+}
+
+.badge.progress {
+  background: #eef2ff;
+  color: #3446a1;
 }
 
 .customer-layout {
@@ -510,6 +523,38 @@ textarea {
   color: var(--ink);
 }
 
+.reservation-record-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.reservation-record-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafb;
+  min-width: 0;
+}
+
+.reservation-record-grid span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reservation-record-grid strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
@@ -538,6 +583,7 @@ textarea {
 
 dialog {
   width: min(760px, calc(100vw - 32px));
+  max-height: calc(100dvh - 24px);
   border: 0;
   border-radius: 8px;
   padding: 0;
@@ -550,6 +596,8 @@ dialog::backdrop {
 
 .modal-form {
   padding: 20px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
 }
 
 .modal-head {
@@ -610,34 +658,6 @@ dialog::backdrop {
   line-height: 1.5;
 }
 
-.price-panel {
-  min-height: calc(100vh - 132px);
-}
-
-.price-image-list {
-  display: grid;
-  justify-items: center;
-  gap: 18px;
-  padding: 10px 0 4px;
-  background: #f8fafb;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.price-image {
-  display: block;
-  width: min(100%, 760px);
-  height: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 12px 28px rgba(34, 31, 28, 0.08);
-}
-
-.addon-price {
-  width: min(100%, 460px);
-}
-
 .file-button input {
   display: none;
 }
@@ -678,7 +698,7 @@ dialog::backdrop {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .nav-button {
@@ -701,22 +721,187 @@ dialog::backdrop {
 
 @media (max-width: 640px) {
   .main {
-    padding: 18px;
+    padding: 14px;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  h2 {
+    font-size: 16px;
   }
 
   .topbar,
-  .detail-header {
+  .detail-header,
+  .panel-head,
+  .item-top {
     align-items: stretch;
     flex-direction: column;
   }
 
+  .topbar {
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  #pageSubTitle {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .sidebar {
+    padding: 12px 10px 10px;
+  }
+
+  .brand {
+    gap: 9px;
+    margin-bottom: 10px;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
   .nav {
+    display: flex;
     overflow-x: auto;
-    grid-template-columns: repeat(5, 112px);
+    gap: 8px;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    min-width: 86px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .metric-grid {
+    gap: 10px;
+  }
+
+  .revenue-chart {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .revenue-bar-item {
+    flex: 0 0 42px;
+  }
+
+  .metric,
+  .panel {
+    padding: 14px;
+  }
+
+  .metric strong {
+    font-size: 23px;
+  }
+
+  .toolbar,
+  .button-row {
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .toolbar > *,
+  .button-row > *,
+  .topbar .primary-button,
+  .topbar .secondary-button,
+  .file-button {
+    width: 100%;
+  }
+
+  .search-box {
+    min-width: 0;
   }
 
   .form-grid,
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .customer-layout {
+    gap: 12px;
+  }
+
+  .customer-list-panel,
+  .detail-panel {
+    min-height: 0;
+  }
+
+  .detail-grid {
+    gap: 8px;
+  }
+
+  .info-box {
+    padding: 10px;
+  }
+
+  .reservation-actions {
+    flex-direction: row;
+    justify-content: stretch;
+  }
+
+  .reservation-actions .secondary-button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .reservation-record-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .modal-form {
+    padding: 14px;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .form-section {
+    padding: 12px;
+  }
+
+  .script-box {
+    font-size: 11px;
+  }
+
+  .toast {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .main {
+    padding: 10px;
+  }
+
+  .panel,
+  .metric {
+    padding: 12px;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .file-button {
+    padding: 0 10px;
+    font-size: 13px;
   }
 }
