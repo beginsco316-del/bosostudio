@@ -1490,6 +1490,7 @@ function mergeCalendarReservations(calendarReservations) {
       status: normalizeReservationStatus(calendarReservation.status || DEFAULT_RESERVATION_STATUS),
       memo: calendarReservation.memo || "",
       createdAt: calendarReservation.createdAt || new Date().toISOString(),
+      updatedAt: calendarReservation.calendarUpdatedAt || calendarReservation.updatedAt || new Date().toISOString(),
       calendarEventId: calendarReservation.calendarEventId || "",
       calendarUpdatedAt: calendarReservation.calendarUpdatedAt || "",
     };
@@ -1545,6 +1546,7 @@ function syncLinkedVisitFromReservation(reservation, previousReservation) {
   linkedVisit.shootType = reservation.shootType || linkedVisit.shootType;
   linkedVisit.productName = reservation.productName || linkedVisit.productName;
   linkedVisit.memo = reservation.memo || linkedVisit.memo;
+  linkedVisit.updatedAt = reservation.updatedAt || new Date().toISOString();
 }
 
 function ensureCalendarCustomer(calendarReservation) {
