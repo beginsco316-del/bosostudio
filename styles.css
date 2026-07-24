@@ -503,6 +503,13 @@ textarea {
   color: #9a4b00;
 }
 
+.summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .customer-layout {
   display: grid;
   grid-template-columns: 390px minmax(0, 1fr);

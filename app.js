@@ -578,6 +578,8 @@ function openVisitEditor(visitId) {
 
 function renderVisitSummary(visit) {
   const customer = getCustomer(visit.customerId);
+  const reservation = visit.reservationId ? state.reservations.find((item) => item.id === visit.reservationId) : null;
+  const status = normalizeReservationStatus(reservation?.status || "촬영완료");
   return `
     <article class="list-item">
       <div class="item-top">
@@ -585,7 +587,10 @@ function renderVisitSummary(visit) {
           <div class="item-title">${escapeHtml(customer?.name || "삭제된 고객")} · ${visit.visitNo}번째 방문</div>
           <div class="item-meta">${formatDate(visit.date)} · ${escapeHtml(visit.shootType)}${visit.productName ? ` · ${escapeHtml(visit.productName)}` : ""} · 사진 ${visit.photos?.length || 0}장</div>
         </div>
-        <span class="badge">${escapeHtml(visit.customerId)}</span>
+        <div class="summary-badges">
+          ${renderStatusText(status)}
+          <span class="badge">${escapeHtml(visit.customerId)}</span>
+        </div>
       </div>
     </article>`;
 }
