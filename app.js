@@ -17,6 +17,12 @@ const state = {
     calendarId: DEFAULT_CALENDAR_ID,
     calendarDuration: 60,
   },
+  sync: {
+    pendingSheetPush: false,
+    lastLocalChangeAt: "",
+    lastSheetPushAt: "",
+    lastSheetPullAt: "",
+  },
   selectedCustomerId: null,
 };
 
@@ -81,6 +87,7 @@ async function loadState() {
 }
 
 function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   persistState(state).catch(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   });
@@ -93,6 +100,13 @@ function migrateState() {
     calendarId: DEFAULT_CALENDAR_ID,
     calendarDuration: 60,
     ...(state.settings || {}),
+  };
+  state.sync = {
+    pendingSheetPush: false,
+    lastLocalChangeAt: "",
+    lastSheetPushAt: "",
+    lastSheetPullAt: "",
+    ...(state.sync || {}),
   };
   if (!state.settings.sheetWebhookUrl) state.settings.sheetWebhookUrl = DEFAULT_WEBHOOK_URL;
   state.settings.calendarId = DEFAULT_CALENDAR_ID;
@@ -273,6 +287,7 @@ function bindEvents() {
   $("#exportJson").addEventListener("click", exportJson);
   $("#exportCsv").addEventListener("click", exportCsv);
   $("#importJson").addEventListener("change", importJson);
+  window.addEventListener("pagehide", flushPendingSheetPush);
 }
 
 function switchView(view) {
@@ -1073,15 +1088,7 @@ async function pushSheets(options = {}) {
     return;
   }
 
-  const payload = {
-    customers: state.customers,
-    visits: state.visits,
-    reservations: state.reservations.map((reservation) => ({
-      ...reservation,
-      customerName: getCustomer(reservation.customerId)?.name || "",
-    })),
-    syncedAt: new Date().toISOString(),
-  };
+  const payload = buildSheetPayload();
 
   try {
     await fetch(url, {
@@ -1090,12 +1097,28 @@ async function pushSheets(options = {}) {
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload),
     });
+    state.sync.pendingSheetPush = false;
+    state.sync.lastSheetPushAt = new Date().toISOString();
+    saveState();
     if (!silent) showToast("Google Sheets로 전송했습니다.");
     return true;
   } catch {
     if (!silent) showToast("전송에 실패했습니다. URL과 배포 권한을 확인하세요.");
     return false;
   }
+}
+
+function buildSheetPayload() {
+  return {
+    customers: state.customers,
+    visits: state.visits,
+    reservations: state.reservations.map((reservation) => ({
+      ...reservation,
+      customerName: getCustomer(reservation.customerId)?.name || "",
+    })),
+    syncedAt: new Date().toISOString(),
+    clientUpdatedAt: state.sync?.lastLocalChangeAt || "",
+  };
 }
 
 async function pullSheets() {
@@ -1109,6 +1132,8 @@ async function pullSheets() {
     const data = await fetchSheetJsonp(url);
     applySheetData(data);
     state.settings.sheetWebhookUrl = url;
+    state.sync.pendingSheetPush = false;
+    state.sync.lastSheetPullAt = new Date().toISOString();
     state.selectedCustomerId = null;
     saveState();
     renderAll();
@@ -1122,11 +1147,18 @@ async function syncFromSheetsOnStartup() {
   const url = state.settings.sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
   if (!url) return;
 
+  if (state.sync?.pendingSheetPush) {
+    queueCloudSync();
+    return;
+  }
+
   try {
     const data = await fetchSheetJsonp(url);
     if (!hasSheetData(data)) return;
     applySheetData(data);
     state.settings.sheetWebhookUrl = url;
+    state.sync.pendingSheetPush = false;
+    state.sync.lastSheetPullAt = new Date().toISOString();
     state.selectedCustomerId = state.customers.some((customer) => customer.id === state.selectedCustomerId) ? state.selectedCustomerId : null;
     saveState();
     renderAll();
@@ -1168,10 +1200,37 @@ function hasSheetData(data) {
 }
 
 function queueCloudSync() {
+  markLocalChange();
+  saveState();
   if (cloudSyncTimer) window.clearTimeout(cloudSyncTimer);
-  cloudSyncTimer = window.setTimeout(() => {
-    pushSheets({ silent: true });
+  cloudSyncTimer = window.setTimeout(async () => {
+    const pushed = await pushSheets({ silent: true });
+    if (pushed) {
+      state.sync.pendingSheetPush = false;
+      state.sync.lastSheetPushAt = new Date().toISOString();
+      saveState();
+    }
   }, 800);
+}
+
+function flushPendingSheetPush() {
+  if (!state.sync?.pendingSheetPush) return;
+  const url = state.settings.sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+  if (!url || !navigator.sendBeacon) return;
+
+  const payload = JSON.stringify(buildSheetPayload());
+  navigator.sendBeacon(url, new Blob([payload], { type: "text/plain;charset=utf-8" }));
+}
+
+function markLocalChange() {
+  state.sync = {
+    pendingSheetPush: true,
+    lastLocalChangeAt: new Date().toISOString(),
+    lastSheetPushAt: state.sync?.lastSheetPushAt || "",
+    ...(state.sync || {}),
+  };
+  state.sync.pendingSheetPush = true;
+  state.sync.lastLocalChangeAt = new Date().toISOString();
 }
 
 async function pushCalendar(options = {}) {
@@ -1742,18 +1801,41 @@ function openDatabase() {
 }
 
 async function readPersistedState() {
+  let dbValue = null;
+  let localValue = null;
+
   try {
     const db = await openDatabase();
-    const value = await idbRequest(db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(STORAGE_KEY));
+    dbValue = await idbRequest(db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(STORAGE_KEY));
     db.close();
-    if (value) return value;
   } catch {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : null;
   }
 
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved ? JSON.parse(saved) : null;
+  if (saved) {
+    try {
+      localValue = JSON.parse(saved);
+    } catch {
+      localValue = null;
+    }
+  }
+
+  return pickLatestPersistedState(dbValue, localValue);
+}
+
+function pickLatestPersistedState(dbValue, localValue) {
+  if (!dbValue) return localValue;
+  if (!localValue) return dbValue;
+
+  const dbTime = getPersistedStateTime(dbValue);
+  const localTime = getPersistedStateTime(localValue);
+  return localTime > dbTime ? localValue : dbValue;
+}
+
+function getPersistedStateTime(value) {
+  return Date.parse(value?.sync?.lastLocalChangeAt || value?.sync?.lastSheetPushAt || value?.sync?.lastSheetPullAt || "") || 0;
 }
 
 async function persistState(value) {
