@@ -336,7 +336,6 @@ function renderDashboard() {
   $("#totalCustomers").textContent = state.customers.length;
   $("#totalVisits").textContent = state.visits.length;
   $("#upcomingReservations").textContent = state.reservations.filter((r) => normalizeReservationStatus(r.status) === DEFAULT_RESERVATION_STATUS && r.date >= toDateInput(new Date())).length;
-  $("#unpaidBalance").textContent = formatWon(state.visits.reduce((sum, visit) => sum + getRemainingAmount(visit), 0));
   $("#currentMonthRevenue").textContent = `이번 달 ${formatWon(revenue.currentMonthTotal)}`;
   $("#currentMonthVisitCount").textContent = `${revenue.currentMonthVisitCount}건`;
   $("#monthlyRevenueChart").innerHTML = renderMonthlyRevenueChart(revenue.monthly);
