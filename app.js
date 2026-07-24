@@ -140,23 +140,6 @@ function migrateState() {
   });
 
   inferVisitReservationLinks();
-  removeCalendarImportedData();
-}
-
-function removeCalendarImportedData() {
-  const importedCustomerIds = new Set(
-    state.customers
-      .filter((customer) => String(customer.memo || "").includes("Google Calendar에서 가져온 고객"))
-      .map((customer) => customer.id)
-  );
-
-  state.customers = state.customers.filter((customer) => !importedCustomerIds.has(customer.id));
-  state.reservations = state.reservations.filter((reservation) => {
-    const importedReservation = importedCustomerIds.has(reservation.customerId);
-    return !importedReservation;
-  });
-
-  if (importedCustomerIds.has(state.selectedCustomerId)) state.selectedCustomerId = null;
 }
 
 function inferVisitReservationLinks() {
