@@ -661,7 +661,6 @@ function renderReservationItem(reservation) {
   const linkedVisit = reservation.itemType === "reservation" ? getVisitByReservationId(reservation.id) : null;
   const standaloneVisit = reservation.itemType === "visit" ? reservation : null;
   const displayStatus = normalizeReservationStatus(linkedVisit ? reservation.status || "촬영완료" : reservation.status);
-  const statusClass = getReservationStatusClass(displayStatus);
   const isVisitRecord = reservation.itemType === "visit";
   const paidMarkup = renderReservationRecordSummary(reservation, linkedVisit || standaloneVisit);
   const actionLabel = linkedVisit ? "예약/촬영/결제 수정" : "예약/촬영/결제 입력";
@@ -673,7 +672,6 @@ function renderReservationItem(reservation) {
           <div class="item-meta">${escapeHtml(customer?.phone || "-")} · ${escapeHtml(reservation.shootType)}${reservation.productName ? ` · ${escapeHtml(reservation.productName)}` : ""}${isVisitRecord ? " · 촬영 기록" : ` · 담당 ${escapeHtml(reservation.staff || "-")}`}</div>
           ${reservation.memo ? `<div class="item-meta">${escapeHtml(reservation.memo)}</div>` : ""}
         </div>
-        <span class="badge ${statusClass}">${escapeHtml(displayStatus)}</span>
       </div>
       ${paidMarkup}
       ${isVisitRecord ? `<div class="button-row reservation-actions">
@@ -688,11 +686,12 @@ function renderReservationItem(reservation) {
 
 function renderReservationRecordSummary(reservation, visit) {
   const displayStatus = normalizeReservationStatus(reservation.status);
+  const statusMarkup = renderStatusText(displayStatus);
   if (!visit) {
     return `
       <div class="reservation-record-grid">
         <div><span>예약</span><strong>${formatDate(reservation.date)}${reservation.time ? ` ${escapeHtml(reservation.time)}` : ""}</strong></div>
-        <div><span>상태</span><strong>${escapeHtml(displayStatus)}</strong></div>
+        <div><span>상태</span>${statusMarkup}</div>
         <div><span>결제</span><strong>결제 전</strong></div>
       </div>`;
   }
@@ -702,7 +701,7 @@ function renderReservationRecordSummary(reservation, visit) {
   return `
     <div class="reservation-record-grid">
       <div><span>예약</span><strong>${formatDate(reservation.date)}${reservation.time ? ` ${escapeHtml(reservation.time)}` : ""}</strong></div>
-      <div><span>상태</span><strong>${escapeHtml(displayStatus)}</strong></div>
+      <div><span>상태</span>${statusMarkup}</div>
       <div><span>결제</span><strong>${escapeHtml(paymentText)}</strong></div>
     </div>`;
 }
@@ -1595,6 +1594,10 @@ function getReservationStatusClass(status) {
   if (status === "발송완료") return "done";
   if (status === "보정완료") return "progress";
   return "warning";
+}
+
+function renderStatusText(status) {
+  return `<strong class="status-text ${getReservationStatusClass(status)}">${escapeHtml(status)}</strong>`;
 }
 
 function normalizeCalendarId(value) {

@@ -454,8 +454,8 @@ textarea {
 }
 
 .badge.reserved {
-  background: #fff7d6;
-  color: #7a5200;
+  background: #ffe8e8;
+  color: #c22a2a;
 }
 
 .badge.shot {
@@ -471,6 +471,36 @@ textarea {
 .badge.progress {
   background: #eef2ff;
   color: #3446a1;
+}
+
+.status-text {
+  display: inline-flex;
+  width: fit-content;
+  padding-bottom: 2px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  border-bottom: 3px solid currentColor;
+}
+
+.status-text.reserved {
+  color: #d12f2f;
+}
+
+.status-text.shot {
+  color: #1173b8;
+}
+
+.status-text.done {
+  color: var(--green);
+}
+
+.status-text.progress {
+  color: #3446a1;
+}
+
+.status-text.warning {
+  color: #9a4b00;
 }
 
 .customer-layout {
