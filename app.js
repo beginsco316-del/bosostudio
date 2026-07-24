@@ -118,6 +118,7 @@ function migrateState() {
       customer.id = nextId;
     }
     customer.address = customer.address || "";
+    customer.updatedAt = customer.updatedAt || customer.createdAt || "";
   });
 
   state.visits.forEach((visit) => {
@@ -131,11 +132,13 @@ function migrateState() {
     visit.balancePaymentStaff = visit.balancePaymentStaff || "";
     visit.deliveryStatus = visit.deliveryStatus || "없음";
     visit.reservationId = visit.reservationId || "";
+    visit.updatedAt = visit.updatedAt || visit.createdAt || "";
   });
 
   state.reservations.forEach((reservation) => {
     if (idMap.has(reservation.customerId)) reservation.customerId = idMap.get(reservation.customerId);
     reservation.status = normalizeReservationStatus(reservation.status);
+    reservation.updatedAt = reservation.updatedAt || reservation.createdAt || "";
   });
 
   inferVisitReservationLinks();
@@ -701,6 +704,7 @@ function handleCustomerSubmit(event) {
     address: form.get("address").trim(),
     memo: form.get("memo").trim(),
     createdAt: existingCustomer?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 
   if (existingCustomer) {
@@ -727,6 +731,7 @@ function handleCustomerSubmit(event) {
       memo: "고객 등록 시 입력한 첫 촬영 기록",
       photos: [],
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   }
   state.selectedCustomerId = customer.id;
@@ -796,6 +801,7 @@ async function handleVisitSubmit(event) {
     photos: photos.length ? [...(existingVisit?.photos || []), ...photos] : existingVisit?.photos || [],
     reservationId,
     createdAt: existingVisit?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const hasPayment = Number(visit.totalAmount || 0) > 0 || Number(visit.deposit || 0) > 0 || Number(visit.balance || 0) > 0;
   const hasShootCompletion = ["촬영완료", "보정완료", "발송완료"].includes(selectedStatus);
@@ -817,12 +823,15 @@ async function handleVisitSubmit(event) {
     reservation.shootType = visit.shootType || reservation.shootType;
     reservation.productName = visit.productName || reservation.productName;
     reservation.memo = visit.memo || reservation.memo;
+    reservation.updatedAt = new Date().toISOString();
   }
+  markLocalChange();
   saveState();
-  queueCloudSync();
   $("#visitModal").close();
   renderAll();
   if (reservation) await syncCalendarAfterReservation(reservation);
+  const sheetSynced = await pushSheets({ silent: true });
+  if (!sheetSynced) queueCloudSync({ markChange: false });
   showToast(shouldSaveVisit ? (existingVisit ? "예약/촬영/결제 기록이 수정되었습니다." : "예약/촬영/결제 기록이 저장되었습니다.") : "예약 정보가 수정되었습니다.");
 }
 
@@ -847,6 +856,7 @@ async function handleReservationSubmit(event) {
     status: normalizeReservationStatus(form.get("status")),
     memo: form.get("memo").trim(),
     createdAt: existingReservation?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const existingVisit = getVisitByReservationId(reservation.id);
   const totalAmount = Number(form.get("totalAmount") || 0);
@@ -884,6 +894,7 @@ async function handleReservationSubmit(event) {
       photos: photos.length ? [...(existingVisit?.photos || []), ...photos] : existingVisit?.photos || [],
       reservationId: reservation.id,
       createdAt: existingVisit?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     if (existingVisit) {
@@ -894,6 +905,7 @@ async function handleReservationSubmit(event) {
     if (reservation.status === DEFAULT_RESERVATION_STATUS) reservation.status = "촬영완료";
   }
 
+  markLocalChange();
   saveState();
   $("#reservationModal").close();
   delete formElement.dataset.reservationId;
@@ -902,7 +914,8 @@ async function handleReservationSubmit(event) {
   renderAll();
   switchView(returnView);
   const calendarSynced = await syncCalendarAfterReservation(reservation);
-  queueCloudSync();
+  const sheetSynced = await pushSheets({ silent: true });
+  if (!sheetSynced) queueCloudSync({ markChange: false });
   const actionText = existingReservation ? "수정" : "등록";
   showToast(calendarSynced ? `예약이 ${actionText}되고 Google Calendar에 반영되었습니다.` : `예약은 ${actionText}됐지만 Google Calendar 반영은 실패했습니다.`);
 }
@@ -1170,15 +1183,21 @@ async function syncFromSheetsOnStartup() {
 }
 
 function applySheetData(data) {
-  state.customers = (data.customers || []).map((customer) => ({
+  const localCustomers = state.customers || [];
+  const localVisits = state.visits || [];
+  const localReservations = state.reservations || [];
+
+  state.customers = mergeRecordsByFreshness(localCustomers, data.customers || [], (customer) => ({
     address: "",
     memo: "",
     createdAt: new Date().toISOString(),
+    updatedAt: "",
     ...customer,
   }));
-  state.visits = (data.visits || []).map((visit) => ({
+  state.visits = mergeRecordsByFreshness(localVisits, data.visits || [], (visit) => ({
     photos: [],
     createdAt: new Date().toISOString(),
+    updatedAt: "",
     ...visit,
     id: visit.id || newId(),
     totalAmount: Number(visit.totalAmount || Number(visit.deposit || 0) + Number(visit.balance || 0)),
@@ -1189,20 +1208,46 @@ function applySheetData(data) {
     balancePaymentStaff: visit.balancePaymentStaff || "",
     deliveryStatus: visit.deliveryStatus || "없음",
   }));
-  state.reservations = (data.reservations || []).map((reservation) => ({
+  state.reservations = mergeRecordsByFreshness(localReservations, data.reservations || [], (reservation) => ({
     createdAt: new Date().toISOString(),
+    updatedAt: "",
     ...reservation,
     id: reservation.id || newId(),
   }));
   migrateState();
 }
 
+function mergeRecordsByFreshness(localRecords, incomingRecords, normalizeRecord) {
+  const records = new Map();
+  localRecords.forEach((record) => {
+    if (record?.id) records.set(record.id, normalizeRecord(record));
+  });
+  incomingRecords.forEach((record) => {
+    const normalizedRecord = normalizeRecord(record);
+    if (!normalizedRecord.id) return;
+    const existingRecord = records.get(normalizedRecord.id);
+    records.set(normalizedRecord.id, pickFreshestRecord(existingRecord, normalizedRecord));
+  });
+  return Array.from(records.values());
+}
+
+function pickFreshestRecord(localRecord, incomingRecord) {
+  if (!localRecord) return incomingRecord;
+  const localTime = getRecordTime(localRecord);
+  const incomingTime = getRecordTime(incomingRecord);
+  return localTime > incomingTime ? localRecord : incomingRecord;
+}
+
+function getRecordTime(record) {
+  return Date.parse(record?.updatedAt || record?.createdAt || "") || 0;
+}
+
 function hasSheetData(data) {
   return Boolean((data.customers || []).length || (data.visits || []).length || (data.reservations || []).length);
 }
 
-function queueCloudSync() {
-  markLocalChange();
+function queueCloudSync(options = {}) {
+  if (options.markChange !== false) markLocalChange();
   saveState();
   if (cloudSyncTimer) window.clearTimeout(cloudSyncTimer);
   cloudSyncTimer = window.setTimeout(async () => {
